@@ -5,7 +5,12 @@ venv/bin/activate: requirements.txt # creates a virtual environment and installs
 
 server: .SILENT venv/bin/activate # activates the virtual environment then runs the server
 	. venv/bin/activate
-	./venv/bin/python3 server.py
+	TIME=60 # pass the time with "make server TIME=<seconds>"
+	./venv/bin/python3 server.py $(TIME)
+
+main: .SILENT venv/bin/activate # activates the virtual environment then runs the main program
+	. venv/bin/activate
+	./venv/bin/python3 main.py
 
 .SILENT: # prevents commands from being echoed
 
