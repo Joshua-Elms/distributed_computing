@@ -27,7 +27,7 @@ def main(interactive=False, default_timeout="60"):
     time.sleep(0.5)
     
     if interactive:
-        import client
+        import exercise_1.client_core as client_core
         
     else:
         subprocess.Popen(["python", "client.py", "0"]) # 0 for non-interactive mode
