@@ -1,5 +1,4 @@
 import socket
-import sys
 import time
 import pprint
 
@@ -41,33 +40,38 @@ class Server:
         """
         Receive GET/SET from client, pass to appropriate function
         """
-        request = self.conn.recv(3)
+        req = self.conn.recv(23) # 3 bytes for GET/SET, 4 bytes for msg size in bytes, 16 bytes for key
+        req_type, req_size, req_key = self._decode_initial_msg(req)
         
-        match request:
+        match req_type:
             case b"GET":
-                print(f"SERVER: Received {request.decode()} at t={time.time()}")
+                print(f"SERVER: Received {req_type} at t={time.time()}")
                 self.kvstore.display()
-                self.recv_get()
+                self.recv_get(req_key, req_size)
                 
             case b"SET":
-                print(f"SERVER: Received {request.decode()} at t={time.time()}")
+                print(f"SERVER: Received {req_type} at t={time.time()}")
                 self.kvstore.display()
-                self.recv_set()
+                self.recv_set(req_size)
                 
             case b"":
-                None
+                self.conn.close()
+                print(f"SERVER: Client disconnected at t={time.time()}")
                 
             case _:
-                print(f"SERVER: Received invalid request: {request} at t={time.time()}")
+                print(f"SERVER: Received invalid request: {req} at t={time.time()}")
         
                 
-    def recv_get(self):
+    def recv_get(self, key, size):
         """
         Receive a GET from client, get from kvstore, and return to client
+        
+        Server sends:
+        header     - "VALUE <key(16b)> <size(4b)>\r\n" (28b)
+        data block - "<value(size)b>\r\n" (size + 2b)
+        end        - "END\r\n" (5b)
         """
-        print(f"SERVER: Waiting for GET message from client at t={time.time()}")
-        key = self.conn.recv(1024)
-        value = self.kvstore.get(key)
+        value = self.kvstore.get(key, size)
         size = len(value)
         header = f"VALUE {key} {size}\r\n".encode('utf-8')
         msg = f"{value}\r\n".encode('utf-8')
@@ -75,8 +79,10 @@ class Server:
         self.conn.sendall(header)
         print(f"SERVER: Sending {msg = } to client at t={time.time()}")
         self.conn.sendall(msg)
+        time.sleep(1)
         print(f"SERVER: Sending END to client at t={time.time()}")
         self.conn.sendall(b"END\r\n")
+        print("SERVER: GET complete")
 
         
     def recv_set(self):
@@ -85,18 +91,25 @@ class Server:
         """
         print(f"SERVER: Waiting for SET message from client at t={time.time()}")
         msg = self.conn.recv(1024).decode('utf-8')
-        key, value = self.parse_set_msg(msg)
+        key, value = self._parse_set_msg(msg)
         status = self.kvstore.set(key, value)
         print(f"SERVER: Sending {status} to client at t={time.time()}")
         self.conn.sendall(status)
         
-    def parse_set_msg(self, msg: str):
+    def _parse_set_msg(self, msg: str):
         """
         Parse a SET from client, depends on format specified by client.set_msg()
         """
         key, value = msg.split(" ", maxsplit=1)
         value = value.rstrip("\r\n")
         return key.encode("utf-8"), value.encode("utf-8")
+    
+    def _decode_initial_msg(self, msg: bytes):
+        """
+        First message sent by client includes first 3 bytes for request type, last 4 bytes for msg size in bytes
+        """
+        req_type, req_size, req_key = (msg[0:3].decode("utf-8"), int.from_bytes(msg[3:7], byteorder="big"), msg[7:23].decode("utf-8"))
+        return req_type, req_size, req_key
         
     def close(self):
         self.s.close()
@@ -133,12 +146,13 @@ class Client:
         self.s.sendall(key.encode('utf-8')) 
         # receive components of the response
         print(f"CLIENT: Waiting for response from server at t={time.time()}")
-        header = self.s.recv(1024)
+        header = self.s.recv(28)
+        size = int(header.decode('utf-8').split(" ")[2]) # get size of data block from header
         print(f"CLIENT: Received header from server at t={time.time()}")
-        msg = self.s.recv(1024)
+        print(f"CLIENT: Header = {header!r}")
+        msg = self.s.recv(size + 2) # data block size + 2 bytes for \r\n
         print(f"CLIENT: Received msg from server at t={time.time()}")
-        end = self.s.recv(1024)
-        self.s.close()
+        end = self.s.recv(5)
         print(f"CLIENT: Received END from server at t={time.time()}")
         return (header, msg, end)
         
@@ -146,21 +160,23 @@ class Client:
         """
         Send a SET message to server, return status message from server
         """
+        assert 1 <= len(key) <= 16, ValueError("Key must be 16 bytes or less, key of size {len(key)}b was passed")
+        assert isinstance(key, bytes), TypeError("Key must be of type bytes, not: {type(key)}")
+        
         print(f"CLIENT: Sending SET message to server at t={time.time()}")
-        self.s.sendall(b"SET") # send a SET message to server
-        # time.sleep(0.1)
-        msg = self.set_msg(key, value)
+        msg = self._set_msg(key, value)
         
         self.s.sendall(msg)
         
         response = self.s.recv(1024)
         return response
         
-    def set_msg(_, key, value):
+    def _set_msg(_, key, size):
         """
         Format a SET message to send to server
+        Msg is of format "SET <size(4b)> <key(16b)>\r\n" (27b)
         """
-        return f"{key} {value}\r\n".encode('utf-8')
+        return f"SET {size} {key}\r\n".encode('utf-8')
     
     def close(self):
         self.s.close()
