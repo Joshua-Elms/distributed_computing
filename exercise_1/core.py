@@ -10,6 +10,8 @@ class Server:
         self.timeout = timeout # number of seconds to wait for client connection before timing out
         self.backlog = backlog # number of queued connections allowed before refusing new connections
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # create a socket object, different protocols could be used
+        self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # allow reuse of socket
+        # self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.s.bind((self.HOST, self.PORT))
         self.s.settimeout(self.timeout) 
         self.kvstore = KVStore(kvstore_path) # initialize kvstore
@@ -29,24 +31,26 @@ class Server:
         self.s.listen(self.backlog)
         self.conn, self.addr = self.s.accept()
         with self.conn:
-            print(f"\nSERVER: Connected by {self.addr}")
+            print(f"SERVER: Connected by {self.addr} at t={time.time()}")
             while True:
                 self.recv()
+                time.sleep(1)
+                print(f"SERVER: Waiting for next request at t={time.time()}")
                 
     def recv(self):
         """
         Receive GET/SET from client, pass to appropriate function
         """
-        request = self.conn.recv(1024)
+        request = self.conn.recv(3)
         
         match request:
             case b"GET":
-                print(f"SERVER: Received {request.decode()}")
+                print(f"SERVER: Received {request.decode()} at t={time.time()}")
                 self.kvstore.display()
                 self.recv_get()
                 
             case b"SET":
-                print(f"SERVER: Received {request.decode()}")
+                print(f"SERVER: Received {request.decode()} at t={time.time()}")
                 self.kvstore.display()
                 self.recv_set()
                 
@@ -54,29 +58,36 @@ class Server:
                 None
                 
             case _:
-                print(f"SERVER: Received invalid request: {request}")
+                print(f"SERVER: Received invalid request: {request} at t={time.time()}")
         
                 
     def recv_get(self):
         """
         Receive a GET from client, get from kvstore, and return to client
         """
+        print(f"SERVER: Waiting for GET message from client at t={time.time()}")
         key = self.conn.recv(1024)
         value = self.kvstore.get(key)
         size = len(value)
         header = f"VALUE {key} {size}\r\n".encode('utf-8')
         msg = f"{value}\r\n".encode('utf-8')
+        print(f"SERVER: Sending {header = } to client at t={time.time()}")
         self.conn.sendall(header)
+        print(f"SERVER: Sending {msg = } to client at t={time.time()}")
         self.conn.sendall(msg)
+        print(f"SERVER: Sending END to client at t={time.time()}")
         self.conn.sendall(b"END\r\n")
+
         
     def recv_set(self):
         """
         Receive a SET from client, parse, set in kvstore, and return status to client
         """
+        print(f"SERVER: Waiting for SET message from client at t={time.time()}")
         msg = self.conn.recv(1024).decode('utf-8')
         key, value = self.parse_set_msg(msg)
         status = self.kvstore.set(key, value)
+        print(f"SERVER: Sending {status} to client at t={time.time()}")
         self.conn.sendall(status)
         
     def parse_set_msg(self, msg: str):
@@ -115,23 +126,33 @@ class Client:
         """
         Send a GET message to server, return header, msg, and end from server
         """
+        print(f"CLIENT: Sending GET message to server at t={time.time()}")
         self.s.sendall(b"GET") # send a GET message to server
-        time.sleep(0.01)
+        
+        print(f"CLIENT: Sending {key} to server at t={time.time()}")
         self.s.sendall(key.encode('utf-8')) 
         # receive components of the response
+        print(f"CLIENT: Waiting for response from server at t={time.time()}")
         header = self.s.recv(1024)
+        print(f"CLIENT: Received header from server at t={time.time()}")
         msg = self.s.recv(1024)
-        end = self.s.recv(5)
+        print(f"CLIENT: Received msg from server at t={time.time()}")
+        end = self.s.recv(1024)
+        self.s.close()
+        print(f"CLIENT: Received END from server at t={time.time()}")
         return (header, msg, end)
         
     def set(self, key, value):
         """
         Send a SET message to server, return status message from server
         """
+        print(f"CLIENT: Sending SET message to server at t={time.time()}")
         self.s.sendall(b"SET") # send a SET message to server
-        time.sleep(0.01)
+        # time.sleep(0.1)
         msg = self.set_msg(key, value)
+        
         self.s.sendall(msg)
+        
         response = self.s.recv(1024)
         return response
         
@@ -158,7 +179,6 @@ class KVStore:
         
     def set(self, key, value):
         try:
-            print(f"Im setting the key as {key!r}")
             self.store[key] = value
             status = b"STORED\r\n"
         except KeyError as e:
@@ -170,9 +190,7 @@ class KVStore:
         return str(self.store)
     
     def display(self):
-        print("SERVER: KVStore state\n")
         pprint.pprint(self.store, depth=2)
-        print("\n")
         
         
 # s.sendall((1000000000).to_bytes(4, byteorder="big"))
