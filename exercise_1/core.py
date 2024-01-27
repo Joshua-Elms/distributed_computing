@@ -42,6 +42,7 @@ class Server:
         """
         req = self.conn.recv(23) # 3 bytes for GET/SET, 4 bytes for msg size in bytes, 16 bytes for key
         req_type, req_size, req_key = self._decode_initial_msg(req)
+        print(f"SERVER: Received {req_type!r}-{req_size!r}-{req_key!r} at t={time.time()}")
         
         match req_type:
             case b"GET":
@@ -54,7 +55,7 @@ class Server:
                 self.kvstore.display()
                 self.recv_set(req_size)
                 
-            case b"":
+            case "":
                 self.conn.close()
                 print(f"SERVER: Client disconnected at t={time.time()}")
                 
@@ -160,8 +161,8 @@ class Client:
         """
         Send a SET message to server, return status message from server
         """
-        assert 1 <= len(key) <= 16, ValueError("Key must be 16 bytes or less, key of size {len(key)}b was passed")
-        assert isinstance(key, bytes), TypeError("Key must be of type bytes, not: {type(key)}")
+        assert 1 <= len(key) <= 16, ValueError(f"Key must be 16 bytes or less, key of size {len(key)}b was passed")
+        assert isinstance(key, bytes), TypeError(f"Key must be of type bytes, not: {type(key)}")
         
         print(f"CLIENT: Sending SET message to server at t={time.time()}")
         msg = self._set_msg(key, value)

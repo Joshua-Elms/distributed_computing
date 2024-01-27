@@ -9,8 +9,8 @@ serv = Server(
     kvstore_path = "exercise_1/kvstore1.data",
     )
 
-print(f"CLIENT: I am about to begin listening at t={time.time()}")
+print(f"SERVER: I am about to begin listening at t={time.time()}")
 serv.listen()
-print(f"CLIENT: I am done listening at t={time.time()}")
+print(f"SERVER: I am done listening at t={time.time()}")
 
 serv.close()
