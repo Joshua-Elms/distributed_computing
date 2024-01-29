@@ -2,25 +2,34 @@ import socket
 import time
 import pprint
 
+END = br"\r\n"
+BUF_SIZE = 4096
+SLEEPTIME = 0.05
+INT_SIZE = 4
+
+
 class Server:
     def __init__(self, HOST, PORT, timeout, backlog, kvstore_path):
-        self.HOST = HOST # localhost
-        self.PORT = PORT # port to listen on
-        self.timeout = timeout # number of seconds to wait for client connection before timing out
-        self.backlog = backlog # number of queued connections allowed before refusing new connections
-        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # create a socket object, different protocols could be used
-        self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # allow reuse of socket
-        # self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.HOST = HOST  # localhost
+        self.PORT = PORT  # port to listen on
+        # number of seconds to wait for client connection before timing out
+        self.timeout = timeout
+        # number of queued connections allowed before refusing new connections
+        self.backlog = backlog
+        # create a socket object, different protocols could be used
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # allow reuse of socket
+        self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.s.bind((self.HOST, self.PORT))
-        self.s.settimeout(self.timeout) 
-        self.kvstore = KVStore(kvstore_path) # initialize kvstore
-        self.conn = None # initialized in self.listen()
-        self.addr = None # initialized in self.listen()
-        
+        self.s.settimeout(self.timeout)
+        self.kvstore = KVStore(kvstore_path)  # initialize kvstore
+        self.conn = None  # initialized in self.listen()
+        self.addr = None  # initialized in self.listen()
+
     def listen(self):
         """
         Main event loop for server
-        
+
         self.s.listen() allows server to accept information
         self.s.accept() waits for up to self.backlog client(s) to accept information from
         Once a client connects, self.conn and self.addr are set to the client's connection and address, respectively
@@ -28,202 +37,257 @@ class Server:
         self.conn destroyed when client disconnects
         """
         self.s.listen(self.backlog)
-        self.conn, self.addr = self.s.accept()
-        with self.conn:
-            print(f"SERVER: Connected by {self.addr} at t={time.time()}")
-            while True:
-                data = self.recv()
-                if not data:
-                    print(f"SERVER: Client disconnected at t={time.time()}")
-                    break
-                time.sleep(1)
-                print(f"SERVER: Waiting for next request at t={time.time()}")
-                
-    def recv(self):
-        """
-        Receive GET/SET from client, pass to appropriate function
-        """
-        req = self.conn.recv(23) # 3 bytes for GET/SET, 4 bytes for msg size in bytes, 16 bytes for key
-        req_type, req_size, req_key = self._decode_initial_msg(req)
-        print(f"SERVER: Received {req_type!r}-{req_size!r}-{req_key!r} at t={time.time()}")
-        
-        match req_type:
-            case b"GET":
-                print(f"SERVER: Received {req_type} at t={time.time()}")
-                self.kvstore.display()
-                self.recv_get(req_key, req_size)
-                
-            case b"SET":
-                print(f"SERVER: Received {req_type} at t={time.time()}")
-                self.kvstore.display()
-                self.recv_set(req_size)
-                
-            case "":
-                self.conn.close()
-                print(f"SERVER: Client disconnected at t={time.time()}")
-                
-            case _:
-                print(f"SERVER: Received invalid request: {req} at t={time.time()}")
-        
-                
-    def recv_get(self, key, size):
-        """
-        Receive a GET from client, get from kvstore, and return to client
-        
-        Server sends:
-        header     - "VALUE <key(16b)> <size(4b)>\r\n" (28b)
-        data block - "<value(size)b>\r\n" (size + 2b)
-        end        - "END\r\n" (5b)
-        """
-        value = self.kvstore.get(key, size)
-        size = len(value)
-        header = f"VALUE {key} {size}\r\n".encode('utf-8')
-        msg = f"{value}\r\n".encode('utf-8')
-        print(f"SERVER: Sending {header = } to client at t={time.time()}")
-        self.conn.sendall(header)
-        print(f"SERVER: Sending {msg = } to client at t={time.time()}")
-        self.conn.sendall(msg)
-        time.sleep(1)
-        print(f"SERVER: Sending END to client at t={time.time()}")
-        self.conn.sendall(b"END\r\n")
-        print("SERVER: GET complete")
+        while True:
+            self.conn, self.addr = self.s.accept()
+            with self.conn:
+                print(f"SERVER: Connected by {self.addr}")
+                fragments = []
+                while True:
+                    chunk = self.conn.recv(BUF_SIZE)
+                    fragments.append(chunk)
+                    time.sleep(SLEEPTIME)
+                    if END in chunk:
+                        self.dispatch(fragments)
+                        fragments = []
 
-        
-    def recv_set(self):
+                    elif not chunk:
+                        print(f"SERVER: Client disconnected")
+                        break
+
+    def dispatch(self, fragments):
+        """
+        Receive get/set from client, pass to appropriate function
+        """
+        data = b"".join(fragments)
+        end_loc = data.find(END) - 1
+        msg = data[0:end_loc]
+        req_type = msg[0:3]
+        req_key = msg[4:8]
+        req_size = int.from_bytes(msg[9:end_loc], "big")
+
+        match req_type:
+            case b"get":
+                self.kvstore.display()
+                self.recv_get(req_key)
+                self.kvstore.display()
+
+            case b"set":
+                self.kvstore.display()
+                self.recv_set(req_key, req_size)
+                self.kvstore.display()
+
+            case _:
+                print(f"SERVER: This case shouldn't be used: {req_type!r}")
+
+    def recv_get(self, key: bytes):
+        """
+        Receive a get request from client, get from kvstore, and return to client
+
+        Server sends:
+        header     - b"VALUE <key(1-250b)> <size(4b)> \r\n"
+        data block - b"<value(size)b> \r\n"
+        end        - b"END \r\n"
+        """
+        response = self.kvstore.get(key)
+        if response == b"KEY NOT FOUND " + END:
+            time.sleep(SLEEPTIME)
+            self.conn.sendall(response)
+
+        else:
+            value, size = response
+            text_msg = b" ".join(
+                (b"VALUE", key, size.to_bytes(INT_SIZE, "big"), END))
+            data_msg = value + b" " + END
+
+            time.sleep(SLEEPTIME)
+            self.conn.sendall(text_msg)
+
+            time.sleep(SLEEPTIME)
+            self.conn.sendall(data_msg)
+
+            time.sleep(SLEEPTIME)
+            self.conn.sendall(b"END " + END)
+
+    def recv_set(self, key, size):
         """
         Receive a SET from client, parse, set in kvstore, and return status to client
         """
-        print(f"SERVER: Waiting for SET message from client at t={time.time()}")
-        msg = self.conn.recv(1024).decode('utf-8')
-        key, value = self._parse_set_msg(msg)
-        status = self.kvstore.set(key, value)
-        print(f"SERVER: Sending {status} to client at t={time.time()}")
+        data = []
+        nbytes = size
+        while nbytes > 0:
+            partial = self.conn.recv(BUF_SIZE)
+            data.append(partial)
+            nbytes -= len(partial)
+
+            if not partial:
+                print(f"SERVER: Client disconnected")
+                break
+
+        data = b"".join(data).rstrip(b" " + END)
+        status = self.kvstore.set(key, data)
+        time.sleep(SLEEPTIME)
         self.conn.sendall(status)
-        
-    def _parse_set_msg(self, msg: str):
-        """
-        Parse a SET from client, depends on format specified by client.set_msg()
-        """
-        key, value = msg.split(" ", maxsplit=1)
-        value = value.rstrip("\r\n")
-        return key.encode("utf-8"), value.encode("utf-8")
-    
-    def _decode_initial_msg(self, msg: bytes):
-        """
-        First message sent by client includes first 3 bytes for request type, last 4 bytes for msg size in bytes
-        """
-        req_type, req_size, req_key = (msg[0:3].decode("utf-8"), int.from_bytes(msg[3:7], byteorder="big"), msg[7:23].decode("utf-8"))
-        return req_type, req_size, req_key
-        
+
     def close(self):
         self.s.close()
-        
-        
+
+
 class Client:
     def __init__(self, HOST, PORT, connection_timeout=60):
-        self.HOST = HOST # localhost
-        self.PORT = PORT # port to listen on
-        self.connection_timeout = connection_timeout # number of seconds to wait for client connection before timing out
-        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # create a socket object, different protocols could be used
+        self.HOST = HOST  # localhost
+        self.PORT = PORT  # port to listen on
+        # number of seconds to wait for client connection before timing out
+        self.connection_timeout = connection_timeout
+        # create a socket object, different protocols could be used
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         start = time.time()
         while start + self.connection_timeout > time.time():
             try:
-                self.s.connect((HOST, PORT)) # connect this socket to established server
+                # connect this socket to established server
+                self.s.connect((HOST, PORT))
                 break
-            except ConnectionRefusedError as e: # if server is not listening, wait 5 seconds and try again
+            except ConnectionRefusedError as e:  # if server is not listening, wait 5 seconds and try again
                 if start + self.connection_timeout > time.time():
-                    print(f"CLIENT: Connection refused by server at {HOST}:{PORT}, trying again")
+                    print(
+                        f"CLIENT: Connection refused by server at {HOST}:{PORT}, trying again")
                     time.sleep(5)
-                    
+
                 else:
-                    print(f"CLIENT: Connection refused by server at {HOST}:{PORT}, exiting")
+                    print(
+                        f"CLIENT: Connection refused by server at {HOST}:{PORT}, exiting")
                     quit()
-            
-    def get(self, key):
+
+    def get(self, key: bytes):
         """
-        Send a GET message to server, return header, msg, and end from server
+        Send a get message to server, return header, msg, and end from server
         """
-        print(f"CLIENT: Sending GET message to server at t={time.time()}")
-        self.s.sendall(b"GET") # send a GET message to server
-        
-        print(f"CLIENT: Sending {key} to server at t={time.time()}")
-        self.s.sendall(key.encode('utf-8')) 
+        text_msg = b" ".join((b"get", key, END))
+        time.sleep(SLEEPTIME)
+        self.s.sendall(text_msg)
         # receive components of the response
-        print(f"CLIENT: Waiting for response from server at t={time.time()}")
-        header = self.s.recv(28)
-        size = int(header.decode('utf-8').split(" ")[2]) # get size of data block from header
-        print(f"CLIENT: Received header from server at t={time.time()}")
-        print(f"CLIENT: Header = {header!r}")
-        msg = self.s.recv(size + 2) # data block size + 2 bytes for \r\n
-        print(f"CLIENT: Received msg from server at t={time.time()}")
-        end = self.s.recv(5)
-        print(f"CLIENT: Received END from server at t={time.time()}")
-        return (header, msg, end)
-        
-    def set(self, key, value):
+        header = []
+        while True:
+            partial = self.s.recv(BUF_SIZE)
+            header.append(partial)
+
+            if END in partial:
+                break
+
+            elif not partial:
+                print(f"CLIENT: Server disconnected")
+                break
+
+        header = b"".join(header)
+        end_loc = header.find(END) - 1
+        if header == b"KEY NOT FOUND " + END:
+            return header, b"", b""
+
+        header = header[0:end_loc]
+        msg_size = header[end_loc-4:end_loc]
+        size = int.from_bytes(header[end_loc-4:end_loc], "big") + 1 + len(END)
+        nbytes = size
+        data = []
+        while nbytes > 0:
+            partial = self.s.recv(BUF_SIZE)
+            data.append(partial)
+            nbytes -= len(partial)
+
+            if not partial:
+                print(f"CLIENT: Server disconnected")
+                break
+
+        value = b"".join(data).rstrip(b" " + END)
+        end = self.s.recv(4 + len(END))
+
+        return header, value, int.from_bytes(msg_size, "big")
+
+    def set(self, key: bytes, value: bytes):
         """
         Send a SET message to server, return status message from server
         """
-        assert 1 <= len(key) <= 16, ValueError(f"Key must be 16 bytes or less, key of size {len(key)}b was passed")
-        assert isinstance(key, bytes), TypeError(f"Key must be of type bytes, not: {type(key)}")
-        
-        print(f"CLIENT: Sending SET message to server at t={time.time()}")
-        msg = self._set_msg(key, value)
-        
-        self.s.sendall(msg)
-        
-        response = self.s.recv(1024)
+        assert 1 <= len(key) <= 250, ValueError(
+            f"Key length must be between 1-250 bytes, key of size {len(key)}b was passed")
+        assert isinstance(key, bytes), TypeError(
+            f"Key must be of type bytes, not: {type(key)}")
+        assert isinstance(value, bytes), TypeError(
+            f"Value must be of type bytes, not: {type(value)}")
+
+        text_msg = self._set_msg(key, value)
+        data_msg = value + b' ' + END
+
+        time.sleep(SLEEPTIME)
+        self.s.sendall(text_msg)
+        time.sleep(SLEEPTIME)
+        self.s.sendall(data_msg)
+
+        response = []
+        while True:
+            partial = self.s.recv(BUF_SIZE)
+            response.append(partial)
+
+            if END in partial:
+                break
+
+            elif not partial:
+                print(f"CLIENT: Server disconnected")
+                break
+
+        response = b"".join(response)
+
         return response
-        
-    def _set_msg(_, key, size):
+
+    def _set_msg(_, key: bytes, value: bytes):
         """
         Format a SET message to send to server
-        Msg is of format "SET <size(4b)> <key(16b)>\r\n" (27b)
+        Msg is of format b"set <size(4b)> <key(1-250b)> \r\n"
         """
-        return f"SET {size} {key}\r\n".encode('utf-8')
-    
+        size = (len(value) + 1 + len(END)).to_bytes(INT_SIZE, 'big')
+        msg_parts = (b'set', key, size, END)
+        msg = b" ".join(msg_parts)
+        return msg
+
     def close(self):
         self.s.close()
-        
-    
+
+
 class KVStore:
     def __init__(self, path):
         self.store = {}
         self.path = path
-        
+
     def get(self, key):
         try:
-            return self.store[key]
+            value = self.store[key]
+            size = len(value)
+            return (self.store[key], size)
         except KeyError as e:
-            return b"KEY NOT FOUND\r\n"
-        
+            return b"KEY NOT FOUND " + END
+
     def set(self, key, value):
         try:
             self.store[key] = value
-            status = b"STORED\r\n"
+            status = b"STORED " + END
         except KeyError as e:
-            status = b"NOT-STORED\r\n"
-            
+            status = b"NOT STORED " + END
+
         return status
-    
+
     def __str__(self):
         return str(self.store)
-    
+
     def display(self):
         pprint.pprint(self.store, depth=2)
-        
-        
-# s.sendall((1000000000).to_bytes(4, byteorder="big"))
-# print(f"\nCLIENT: Received {int.from_bytes(data, byteorder='big')}")
+
 
 def main():
     pass
 
+
 if __name__ == "__main__":
     main(
-        HOST = "127.0.0.1",
-        PORT = 65000,
-        interactive = False,
-        timeout = 10,
-        backlog = 10
+        HOST="127.0.0.1",
+        PORT=65000,
+        interactive=False,
+        timeout=10,
+        backlog=10
     )
