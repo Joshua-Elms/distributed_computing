@@ -32,10 +32,7 @@ class Server:
         with self.conn:
             print(f"SERVER: Connected by {self.addr} at t={time.time()}")
             while True:
-                data = self.recv()
-                if not data:
-                    print(f"SERVER: Client disconnected at t={time.time()}")
-                    break
+                self.recv()
                 time.sleep(1)
                 print(f"SERVER: Waiting for next request at t={time.time()}")
                 
