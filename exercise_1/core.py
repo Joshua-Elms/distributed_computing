@@ -1,6 +1,7 @@
 import socket
 import time
 import pprint
+from pathlib import Path
 
 END = br"\r\n"
 BUF_SIZE = 4096
@@ -43,9 +44,9 @@ class Server:
                 print(f"SERVER: Connected by {self.addr}")
                 fragments = []
                 while True:
+                    time.sleep(SLEEPTIME)
                     chunk = self.conn.recv(BUF_SIZE)
                     fragments.append(chunk)
-                    time.sleep(SLEEPTIME)
                     if END in chunk:
                         self.dispatch(fragments)
                         fragments = []
@@ -58,22 +59,22 @@ class Server:
         """
         Receive get/set from client, pass to appropriate function
         """
-        data = b"".join(fragments)
-        end_loc = data.find(END) - 1
-        msg = data[0:end_loc]
+        text_msg = b"".join(fragments)
+        end_loc = text_msg.find(END) - 1
+        msg = text_msg[0:end_loc]
         req_type = msg[0:3]
-        req_key = msg[4:8]
-        req_size = int.from_bytes(msg[9:end_loc], "big")
-
+        
         match req_type:
             case b"get":
-                self.kvstore.display()
+                req_key = msg[4:end_loc]
                 self.recv_get(req_key)
                 self.kvstore.display()
 
             case b"set":
-                self.kvstore.display()
-                self.recv_set(req_key, req_size)
+                req_key = msg[4:end_loc-5]
+                req_size = int.from_bytes(msg[end_loc-4:end_loc], "big")
+                data_msg_partial = text_msg[end_loc+1+len(END):]
+                self.recv_set(req_key, req_size, data_msg_partial)
                 self.kvstore.display()
 
             case _:
@@ -108,12 +109,16 @@ class Server:
             time.sleep(SLEEPTIME)
             self.conn.sendall(b"END " + END)
 
-    def recv_set(self, key, size):
+    def recv_set(self, key: bytes, size: int, data_msg_partial: bytes = b""):
         """
         Receive a SET from client, parse, set in kvstore, and return status to client
         """
         data = []
         nbytes = size
+        partial_size = len(data_msg_partial)
+        nbytes -= partial_size
+        data.append(data_msg_partial)
+
         while nbytes > 0:
             partial = self.conn.recv(BUF_SIZE)
             data.append(partial)
@@ -183,7 +188,6 @@ class Client:
             return header, b"", b""
 
         header = header[0:end_loc]
-        msg_size = header[end_loc-4:end_loc]
         size = int.from_bytes(header[end_loc-4:end_loc], "big") + 1 + len(END)
         nbytes = size
         data = []
@@ -199,7 +203,7 @@ class Client:
         value = b"".join(data).rstrip(b" " + END)
         end = self.s.recv(4 + len(END))
 
-        return header, value, int.from_bytes(msg_size, "big")
+        return header, value, end
 
     def set(self, key: bytes, value: bytes):
         """
@@ -215,26 +219,28 @@ class Client:
         text_msg = self._set_msg(key, value)
         data_msg = value + b' ' + END
 
-        time.sleep(SLEEPTIME)
-        self.s.sendall(text_msg)
-        time.sleep(SLEEPTIME)
-        self.s.sendall(data_msg)
+        status = b""
+        while not status:
+            time.sleep(SLEEPTIME)
+            self.s.sendall(text_msg)
+            time.sleep(SLEEPTIME)
+            self.s.sendall(data_msg)
 
-        response = []
-        while True:
-            partial = self.s.recv(BUF_SIZE)
-            response.append(partial)
+            response = []
+            while True:
+                partial = self.s.recv(BUF_SIZE)
+                response.append(partial)
 
-            if END in partial:
-                break
+                if END in partial:
+                    break
 
-            elif not partial:
-                print(f"CLIENT: Server disconnected")
-                break
+                elif not partial:
+                    print(f"CLIENT: Server disconnected")
+                    break
 
-        response = b"".join(response)
+            status = b"".join(response)
 
-        return response
+        return status
 
     def _set_msg(_, key: bytes, value: bytes):
         """
@@ -253,13 +259,14 @@ class Client:
 class KVStore:
     def __init__(self, path):
         self.store = {}
-        self.path = path
+        self.path = Path(path)
 
     def get(self, key):
         try:
             value = self.store[key]
             size = len(value)
             return (self.store[key], size)
+        
         except KeyError as e:
             return b"KEY NOT FOUND " + END
 

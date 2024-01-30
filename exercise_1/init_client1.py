@@ -6,15 +6,15 @@ c1 = Client(
     PORT = 65000,
 )
 
-response = c1.set(b"key1", b"value1")
-print(f"CLIENT: Received {response} to set")
+response = c1.set(b"key1", b"C")
+print(f"CLIENT1: Received {response} to set")
 
-response = c1.set(b"key2", b"value3")
-print(f"CLIENT: Received {response} to set")
+response = c1.set(b"key2", b"B")
+print(f"CLIENT1: Received {response} to set")
 
-response = c1.set(b"key2", b"yohofiddledy dee, a pirates life for me")
+response = c1.set(b"key2", b"A")
 
 msg, value, end = c1.get(b"key2")
-print(f"CLIENT: Received\n{msg}\n{value}\n{end}")
+print(f"CLIENT1: Received\n{msg}\n{value}\n{end} to get")
 
 c1.close()

@@ -1,5 +1,4 @@
 from core import Server
-import time
 
 serv = Server(
     HOST="127.0.0.1",
@@ -11,6 +10,3 @@ serv = Server(
 
 print(f"SERVER: I am about to begin listening")
 serv.listen()
-print(f"SERVER: I am done listening")
-
-serv.close()
