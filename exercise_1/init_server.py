@@ -5,7 +5,7 @@ serv = Server(
     PORT=65000,
     timeout=120,
     backlog=10,
-    kvstore_path="exercise_1/kvstore1.data",
+    kvstore_path="kvstore1.data",
 )
 
 print(f"SERVER: I am about to begin listening")

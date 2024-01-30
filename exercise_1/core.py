@@ -2,11 +2,15 @@ import socket
 import time
 import pprint
 from pathlib import Path
+import shutil
 
-END = br"\r\n"
+END = b"\r\n"
+END_SIZE = len(END)
 BUF_SIZE = 4096
 SLEEPTIME = 0.05
 INT_SIZE = 4
+KEY_SIZE = 16
+INT_ORDER = "big"
 
 
 class Server:
@@ -71,9 +75,9 @@ class Server:
                 self.kvstore.display()
 
             case b"set":
-                req_key = msg[4:end_loc-5]
-                req_size = int.from_bytes(msg[end_loc-4:end_loc], "big")
-                data_msg_partial = text_msg[end_loc+1+len(END):]
+                req_key = msg[4:end_loc-INT_SIZE-1]
+                req_size = int.from_bytes(msg[end_loc-INT_SIZE:end_loc], "big")
+                data_msg_partial = text_msg[end_loc+1+END_SIZE:]
                 self.recv_set(req_key, req_size, data_msg_partial)
                 self.kvstore.display()
 
@@ -95,7 +99,7 @@ class Server:
             self.conn.sendall(b"KEY NOT FOUND " + END)
 
         else:
-            _, value, size, pos = response # FIX, this is a dict and won't work
+            value, size, pos = response["value"], response["size"], response["pos"] # FIX, this is a dict and won't work
             text_msg = b" ".join(
                 (b"VALUE", key, size.to_bytes(INT_SIZE, "big"), END))
             data_msg = value + b" " + END
@@ -128,8 +132,8 @@ class Server:
                 print(f"SERVER: Client disconnected")
                 break
 
-        data = b"".join(data).rstrip(b" " + END)
-        status = self.kvstore.set(key, data)
+        value = b"".join(data).rstrip(b" " + END)
+        status = self.kvstore.set(key, value, len(value))
         time.sleep(SLEEPTIME)
         self.conn.sendall(status)
 
@@ -188,7 +192,7 @@ class Client:
             return header, b"", b""
 
         header = header[0:end_loc]
-        size = int.from_bytes(header[end_loc-4:end_loc], "big") + 1 + len(END)
+        size = int.from_bytes(header[end_loc-INT_SIZE:end_loc], "big") + 1 + END_SIZE
         nbytes = size
         data = []
         while nbytes > 0:
@@ -209,13 +213,14 @@ class Client:
         """
         Send a SET message to server, return status message from server
         """
-        assert 1 <= len(key) <= 250, ValueError(
-            f"Key length must be between 1-250 bytes, key of size {len(key)}b was passed")
+        assert 1 <= len(key) <= KEY_SIZE, ValueError(
+            f"Key length must be between 1-{KEY_SIZE} bytes, key of size {len(key)}b was passed")
         assert isinstance(key, bytes), TypeError(
             f"Key must be of type bytes, not: {type(key)}")
         assert isinstance(value, bytes), TypeError(
             f"Value must be of type bytes, not: {type(value)}")
 
+        key = key.ljust(KEY_SIZE, b" ")
         text_msg = self._set_msg(key, value)
         data_msg = value + b' ' + END
 
@@ -247,7 +252,7 @@ class Client:
         Format a SET message to send to server
         Msg is of format b"set <size(4b)> <key(1-250b)> \r\n"
         """
-        size = (len(value) + 1 + len(END)).to_bytes(INT_SIZE, 'big')
+        size = (len(value) + 1 + END_SIZE).to_bytes(INT_SIZE, 'big')
         msg_parts = (b'set', key, size, END)
         msg = b" ".join(msg_parts)
         return msg
@@ -260,24 +265,67 @@ class KVStore:
     def __init__(self, path):
         self.store = {}
         self.path = Path(path)
+        self.path.touch(exist_ok=True)
+        self.tmp_path = self.path.with_suffix(".tmp")
 
     def get(self, key):
-        try:
-            value = self.store[key]
-            size = len(value)
-            return (self.store[key], size)
-        
-        except KeyError as e:
-            return b"KEY NOT FOUND " + END
+        value, size, pos = None, None, None
+        with self.path.open("rb") as f:
+            for i, line in enumerate(f):
+                if line.startswith(key):
+                    pos = i
+                    key = line[:KEY_SIZE]
+                    size = int.from_bytes(line[KEY_SIZE:KEY_SIZE+INT_SIZE], byteorder=INT_ORDER)
+                    value = line[KEY_SIZE+INT_SIZE:KEY_SIZE+INT_SIZE+size]
+                    break
 
-    def set(self, key, value):
+        return dict(key=key, value=value, size=size, pos=pos)
+        
+
+    def set(self, key: bytes, value: bytes, size = None):
+        size = len(value).to_bytes(INT_SIZE, byteorder=INT_ORDER) # will be replaced by actual size once this code goes into core.py
+        key_response = self.get(key)
+        key_exists = key_response["value"] is not None # used to determine whether to rewrite or append to file
+
         try:
-            self.store[key] = value
+            if key_exists: # trigger rewrite, key will be overwritten at bottom of file
+                if key_response["value"] != value: # only rewrite if value is different
+                    self._rewrite(key, value, size, key_response["pos"])
+
+            else: # simply append key-size-value to bottom of file
+                with self.path.open("a+b") as f:
+                    line = key + size + value + b"\n"
+                    f.write(line)
+
             status = b"STORED " + END
-        except KeyError as e:
+
+        except Exception as e:
+            print(e)
             status = b"NOT STORED " + END
 
         return status
+    
+    def _rewrite(self, key, value, size, pos):
+        shutil.copy(self.path, self.tmp_path) # copy to temp file so that we can overwrite lines from the original file
+        with self.tmp_path.open("rb") as f_read:
+            with self.path.open("r+b") as f_write:
+                start = 0
+                f_write.seek(0)
+                for i, line in enumerate(f_read):
+                    if i == pos:
+                        f_write.seek(start, 0)
+
+                    elif i > pos:
+                        print(f"Writing line {line} at {f_write.tell()}")
+                        f_write.write(line) # rewrite all lines after key
+
+                    size_parsed = int.from_bytes(line[KEY_SIZE:KEY_SIZE+INT_SIZE], byteorder=INT_ORDER)
+                    start += KEY_SIZE + INT_SIZE + size_parsed + 1 # Key + Size + Value + Newline (go to next line)
+
+                f_write.write(key + size + value + b"\n") # overwrite key at bottom of file
+                f_write.truncate()
+
+        self.tmp_path.unlink()
 
     def __str__(self):
         return str(self.store)

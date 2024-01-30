@@ -40,7 +40,8 @@ class KVStore:
 
         try:
             if key_exists: # trigger rewrite, key will be overwritten at bottom of file
-                self._rewrite(key, value, size, key_response["pos"])
+                if key_response["value"] != value: # only rewrite if value is different
+                    self._rewrite(key, value, size, key_response["pos"])
 
             else: # simply append key-size-value to bottom of file
                 with self.path.open("a+b") as f:
@@ -50,32 +51,30 @@ class KVStore:
             status = b"STORED " + END
 
         except Exception as e:
-            raise(e)
+            print(e)
             status = b"NOT STORED " + END
 
         return status
     
     def _rewrite(self, key, value, size, pos):
-        # breakpoint()
         shutil.copy(self.path, self.tmp_path) # copy to temp file so that we can overwrite lines from the original file
         with self.tmp_path.open("rb") as f_read:
             with self.path.open("r+b") as f_write:
                 start = 0
                 f_write.seek(0)
                 for i, line in enumerate(f_read):
-                    size_parsed = int.from_bytes(line[KEY_SIZE:KEY_SIZE+INT_SIZE], byteorder=INT_ORDER)
-                    start += KEY_SIZE + INT_SIZE + size_parsed + 1 # Key + Size + Value + Newline (go to next line)
-                    if i > pos - 1:
-                        if i == pos:
-                            f_write.seek(start, 0)
+                    if i == pos:
+                        f_write.seek(start, 0)
 
+                    elif i > pos:
                         print(f"Writing line {line} at {f_write.tell()}")
                         f_write.write(line) # rewrite all lines after key
 
-                    # else:
-                    #     f_write.readline() # skip lines before key
+                    size_parsed = int.from_bytes(line[KEY_SIZE:KEY_SIZE+INT_SIZE], byteorder=INT_ORDER)
+                    start += KEY_SIZE + INT_SIZE + size_parsed + 1 # Key + Size + Value + Newline (go to next line)
 
                 f_write.write(key + size + value + b"\n") # overwrite key at bottom of file
+                f_write.truncate()
 
         self.tmp_path.unlink()
 
@@ -87,7 +86,8 @@ class KVStore:
 
 def main(path: str):
     kvs = KVStore(path)
-    for i in range(5):
+    for i in range(100):
+        time.sleep(0.05)
         k = f"key{i}".encode('utf-8')
         if len(k) < KEY_SIZE:
             k += b" " * (KEY_SIZE - len(k))
@@ -96,8 +96,15 @@ def main(path: str):
         print(f"Status: {s}")
 
     k1 = b"key3 "
+    time.sleep(2)
     s1 = kvs.set(k1, b"TEST")
     print(f"Status: {s1}")
+    k1 = b"key1 "
+    time.sleep(2)
+    s1 = kvs.set(k1, b"Oh Yeah")
+    k1 = b"key2 "
+    time.sleep(2)
+    s1 = kvs.set(k1, b"I'm new and partial af")
     # kvs._rewrite(k1, b"B", 1, 2)
     # v1, l1 = kvs.get(b"key1")
 
