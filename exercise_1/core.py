@@ -90,12 +90,12 @@ class Server:
         end        - b"END \r\n"
         """
         response = self.kvstore.get(key)
-        if response == b"KEY NOT FOUND " + END:
+        if response["value"] is None:
             time.sleep(SLEEPTIME)
-            self.conn.sendall(response)
+            self.conn.sendall(b"KEY NOT FOUND " + END)
 
         else:
-            value, size = response
+            _, value, size, pos = response # FIX, this is a dict and won't work
             text_msg = b" ".join(
                 (b"VALUE", key, size.to_bytes(INT_SIZE, "big"), END))
             data_msg = value + b" " + END
