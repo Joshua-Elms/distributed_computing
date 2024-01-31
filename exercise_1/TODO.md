@@ -5,7 +5,7 @@ Complete: ☑
 
 ☑ Error handling - 45 mins
 
-☐ Updated Makefile - 10 mins
+☑ Updated Makefile - 10 mins
 
 ☐ Extensive testing - 30 mins
 
