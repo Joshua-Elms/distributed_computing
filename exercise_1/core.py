@@ -379,6 +379,8 @@ class KVStore:
         Requires the following parameters:
         - key: The key to search for in the file.
         """
+        assert self.path.exists(), FileNotFoundError(
+            f"File {self.path} has been deleted or moved.")
         with self.path.open("rb") as f:
             value = None
             size = None
@@ -419,6 +421,8 @@ class KVStore:
         # used to determine whether to rewrite or append to file
         key_response = self.get(key)
         key_exists = key_response["value"] is not None
+        assert self.path.exists(), FileNotFoundError(
+            f"File {self.path} has been deleted or moved.")
 
         try:
             if key_exists:  # trigger rewrite, key will be overwritten at bottom of file
@@ -443,6 +447,9 @@ class KVStore:
         Copy the file to a temporary file, read the key-value pairs from the tmp file after the pair to updated into the original file, overwriting the pair to be updated. 
         Finally, append the updated key-value pair to the end of the original file.
         """
+        assert self.path.exists(), FileNotFoundError(
+            f"File {self.path} has been deleted or moved.")
+
         try:
             # copy to temp file so that we can overwrite lines from the original file
             shutil.copy(self.path, self.tmp_path)
@@ -473,6 +480,8 @@ class KVStore:
             print(f"KVSTORE: Error rewriting file: {e}")
 
     def __str__(self) -> str:
+        assert self.path.exists(), FileNotFoundError(
+            f"File {self.path} has been deleted or moved.")
         output = f"Key-Value store at {self.path}\n{'-'*30}\n"
         lines = []
         max_int_digits = 0

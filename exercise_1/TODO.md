@@ -3,7 +3,7 @@ Complete: ☑
 
 ☑ Code documentation - 30 mins
 
-☐ Error handling - 45 mins
+☑ Error handling - 45 mins
 
 ☐ Updated Makefile - 10 mins
 
