@@ -1,4 +1,4 @@
-from core import Server
+from core import *
 import json
 import sys
 
@@ -20,3 +20,4 @@ serv = Server(
 print(f"Server: Listening on {HOST}:{PORT}...")
 serv.listen()
 print(f"Server: Detached from {HOST}:{PORT}")
+serv.close()

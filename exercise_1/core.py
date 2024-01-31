@@ -31,7 +31,7 @@ END_SIZE = len(END)
 BUF_SIZE = 4096
 SLEEPTIME = 0.05
 INT_SIZE = 4
-KEY_SIZE = 10
+KEY_SIZE = 60
 INT_ORDER = "big"
 
 
@@ -74,7 +74,14 @@ class Server:
         # main event loop
         while True:
             # self.conn is a new socket object usable to send and receive data on the connection
-            self.conn, self.addr = self.s.accept()
+            try:
+                self.conn, self.addr = self.s.accept()
+
+            except TimeoutError as e:
+                if self.vocal:
+                    print(f"SERVER: Timeout reached at {self.timeout} seconds")
+                break
+
             # context management for self.conn; closes socket when block is exited or vice versa
             with self.conn:
                 if self.vocal:

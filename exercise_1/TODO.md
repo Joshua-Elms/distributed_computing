@@ -7,9 +7,9 @@ Complete: ☑
 
 ☑ Updated Makefile - 10 mins
 
-☐ Extensive testing - 30 mins
+☑ Extensive testing - 30 mins
 
-☐ Clean up repo - 5 mins
+☑ Clean up repo - 5 mins
 
 ☐ Zip, test fresh run - 10 mins
 
