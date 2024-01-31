@@ -9,7 +9,7 @@ END_SIZE = len(END)
 BUF_SIZE = 4096
 SLEEPTIME = 0.05
 INT_SIZE = 4
-KEY_SIZE = 16
+KEY_SIZE = 10
 INT_ORDER = "big"
 
 
@@ -67,19 +67,18 @@ class Server:
         end_loc = text_msg.find(END) - 1
         msg = text_msg[0:end_loc]
         req_type = msg[0:3]
-        
+
         match req_type:
             case b"get":
                 req_key = msg[4:end_loc]
                 self.recv_get(req_key)
-                self.kvstore.display()
 
             case b"set":
                 req_key = msg[4:end_loc-INT_SIZE-1]
                 req_size = int.from_bytes(msg[end_loc-INT_SIZE:end_loc], "big")
                 data_msg_partial = text_msg[end_loc+1+END_SIZE:]
                 self.recv_set(req_key, req_size, data_msg_partial)
-                self.kvstore.display()
+                print(self.kvstore)
 
             case _:
                 print(f"SERVER: This case shouldn't be used: {req_type!r}")
@@ -99,9 +98,9 @@ class Server:
             self.conn.sendall(b"KEY NOT FOUND " + END)
 
         else:
-            value, size, pos = response["value"], response["size"], response["pos"] # FIX, this is a dict and won't work
+            value, size = response["value"], response["size"]
             text_msg = b" ".join(
-                (b"VALUE", key, size.to_bytes(INT_SIZE, "big"), END))
+                (b"VALUE", key, size, END))
             data_msg = value + b" " + END
 
             time.sleep(SLEEPTIME)
@@ -133,7 +132,8 @@ class Server:
                 break
 
         value = b"".join(data).rstrip(b" " + END)
-        status = self.kvstore.set(key, value, len(value))
+        status = self.kvstore.set(key, value, len(
+            value).to_bytes(INT_SIZE, byteorder=INT_ORDER))
         time.sleep(SLEEPTIME)
         self.conn.sendall(status)
 
@@ -170,6 +170,11 @@ class Client:
         """
         Send a get message to server, return header, msg, and end from server
         """
+        assert 1 <= len(key) <= KEY_SIZE, ValueError(
+            f"Key length must be between 1-{KEY_SIZE} bytes, key of size {len(key)}b was passed")
+        assert isinstance(key, bytes), TypeError(
+            f"Key must be of type bytes, not: {type(key)}")
+        key = key.ljust(KEY_SIZE, b" ")
         text_msg = b" ".join((b"get", key, END))
         time.sleep(SLEEPTIME)
         self.s.sendall(text_msg)
@@ -192,7 +197,8 @@ class Client:
             return header, b"", b""
 
         header = header[0:end_loc]
-        size = int.from_bytes(header[end_loc-INT_SIZE:end_loc], "big") + 1 + END_SIZE
+        size = int.from_bytes(
+            header[end_loc-INT_SIZE:end_loc], "big") + 1 + END_SIZE
         nbytes = size
         data = []
         while nbytes > 0:
@@ -263,38 +269,51 @@ class Client:
 
 class KVStore:
     def __init__(self, path):
-        self.store = {}
         self.path = Path(path)
         self.path.touch(exist_ok=True)
         self.tmp_path = self.path.with_suffix(".tmp")
 
     def get(self, key):
-        value, size, pos = None, None, None
         with self.path.open("rb") as f:
-            for i, line in enumerate(f):
-                if line.startswith(key):
-                    pos = i
-                    key = line[:KEY_SIZE]
-                    size = int.from_bytes(line[KEY_SIZE:KEY_SIZE+INT_SIZE], byteorder=INT_ORDER)
-                    value = line[KEY_SIZE+INT_SIZE:KEY_SIZE+INT_SIZE+size]
+            value = None
+            size = None
+            start_pos = None
+            end_pos = 0
+            while True:
+                current_key = f.read(KEY_SIZE)
+                # if current_key is empty, we've reached the end of the file
+                if not current_key:
+                    break
+                tmp_size = f.read(INT_SIZE)
+                tmp_size_int = int.from_bytes(tmp_size, byteorder=INT_ORDER)
+                end_pos += KEY_SIZE + INT_SIZE + tmp_size_int
+                tmp_value = f.read(tmp_size_int)
+                if current_key == key:
+                    value = tmp_value
+                    size = tmp_size
+                    start_pos = end_pos - (KEY_SIZE + INT_SIZE + tmp_size_int)
                     break
 
-        return dict(key=key, value=value, size=size, pos=pos)
-        
+        return dict(key=key, value=value, size=size, start_pos=start_pos, end_pos=end_pos)
 
-    def set(self, key: bytes, value: bytes, size = None):
-        size = len(value).to_bytes(INT_SIZE, byteorder=INT_ORDER) # will be replaced by actual size once this code goes into core.py
+    def set(self, key: bytes, value: bytes, size: bytes):
+        """
+        delete default value for size
+        """
+        # will be replaced by actual size once this code goes into core.py
         key_response = self.get(key)
-        key_exists = key_response["value"] is not None # used to determine whether to rewrite or append to file
+        # used to determine whether to rewrite or append to file
+        key_exists = key_response["value"] is not None
 
         try:
-            if key_exists: # trigger rewrite, key will be overwritten at bottom of file
-                if key_response["value"] != value: # only rewrite if value is different
-                    self._rewrite(key, value, size, key_response["pos"])
+            if key_exists:  # trigger rewrite, key will be overwritten at bottom of file
+                if key_response["value"] != value:  # only rewrite if value is different
+                    self._rewrite(
+                        key, value, size, key_response["start_pos"], key_response["end_pos"])
 
-            else: # simply append key-size-value to bottom of file
+            else:  # simply append key-size-value to bottom of file
                 with self.path.open("a+b") as f:
-                    line = key + size + value + b"\n"
+                    line = key + size + value
                     f.write(line)
 
             status = b"STORED " + END
@@ -304,34 +323,57 @@ class KVStore:
             status = b"NOT STORED " + END
 
         return status
-    
-    def _rewrite(self, key, value, size, pos):
-        shutil.copy(self.path, self.tmp_path) # copy to temp file so that we can overwrite lines from the original file
+
+    def _rewrite(self, key: bytes, value: bytes, size: bytes, start_pos: int, end_pos: int):
+        # copy to temp file so that we can overwrite lines from the original file
+        shutil.copy(self.path, self.tmp_path)
         with self.tmp_path.open("rb") as f_read:
             with self.path.open("r+b") as f_write:
-                start = 0
-                f_write.seek(0)
-                for i, line in enumerate(f_read):
-                    if i == pos:
-                        f_write.seek(start, 0)
+                f_read.seek(end_pos)
+                f_write.seek(start_pos)
+                f_write.truncate()  # clear file from pos to end
+                while True:
+                    this_key = f_read.read(KEY_SIZE)
+                    if not this_key:
+                        break
+                    this_size = f_read.read(INT_SIZE)
+                    this_size_int = int.from_bytes(
+                        this_size, byteorder=INT_ORDER)
+                    this_value = f_read.read(this_size_int)
+                    f_write.write(this_key + this_size + this_value)
 
-                    elif i > pos:
-                        print(f"Writing line {line} at {f_write.tell()}")
-                        f_write.write(line) # rewrite all lines after key
-
-                    size_parsed = int.from_bytes(line[KEY_SIZE:KEY_SIZE+INT_SIZE], byteorder=INT_ORDER)
-                    start += KEY_SIZE + INT_SIZE + size_parsed + 1 # Key + Size + Value + Newline (go to next line)
-
-                f_write.write(key + size + value + b"\n") # overwrite key at bottom of file
-                f_write.truncate()
+                f_write.write(key + size + value)
 
         self.tmp_path.unlink()
 
     def __str__(self):
-        return str(self.store)
+        output = f"Key-Value store at {self.path}\n{'-'*30}\n"
 
-    def display(self):
-        pprint.pprint(self.store, depth=2)
+        lines = []
+        max_int_digits = 0
+        empty = True
+        with self.path.open("rb") as f:
+            while True:
+                key = f.read(KEY_SIZE)
+                if not key:
+                    break
+                size = f.read(INT_SIZE)
+                size_int = int.from_bytes(size, byteorder=INT_ORDER)
+                int_digits = len(str(size_int))
+                max_int_digits = int_digits if int_digits > max_int_digits else max_int_digits
+                value = f.read(size_int)
+                lines.append((key, size_int, value))
+                empty = False
+
+        for line in lines:
+            output += f"{line[0]} {str(line[1]).rjust(max_int_digits)}b: {line[2]}\n"
+
+        if empty:
+            output += "Empty"
+
+        output += "\n"
+
+        return output
 
 
 def main():

@@ -6,19 +6,23 @@ c1 = Client(
     PORT = 65000,
 )
 
-response = c1.set(b"key_C2", b"A")
-print(f"CLIENT2: Received {response} to set")
+start, stop, step = 0, 100, 11
 
-# time.sleep(3)
+# response = c1.set(b"key1", b"C")
+# print(f"CLIENT1: Received {response} to set")
 
-response = c1.set(b"key3", b"C")
-print(f"CLIENT2: Received {response} to set")
+# response = c1.set(b"key2", b"B")
+# print(f"CLIENT1: Received {response} to set")
 
-# time.sleep(3)
+# response = c1.set(b"key2", b"A")
+for i in range(start, stop, step):
+    response = c1.set(f"key{i}".encode('utf-8'), f"value{i*'*'}".encode('utf-8'))
 
-response = c1.set(b"key2", b"B")
+for i in range(start, stop, step):
+    msg, value, end = c1.get(f"key{i}".encode('utf-8'))
+    print(f"CLIENT1: Received\n{msg}\n{value}\n{end} to get")
 
 msg, value, end = c1.get(b"key2")
-print(f"CLIENT2: Received\n{msg}\n{value}\n{end}")
+print(f"CLIENT1: Received\n{msg}\n{value}\n{end} to get")
 
 c1.close()
