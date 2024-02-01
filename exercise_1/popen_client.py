@@ -20,28 +20,34 @@ client = Client(
 # execute instructions
 
 # for some reason, python doesn't have an lsplit function
-lsplit_bytes = lambda s, c, n: [x[::-1] for x in s[::-1].rsplit(c, n)[::-1]]
+
+
+def lsplit_bytes(s, c, n): return [x[::-1] for x in s[::-1].rsplit(c, n)[::-1]]
+
 
 for i, instruction in enumerate(instructions):
     if instruction.startswith("get"):
         parts = lsplit_bytes(instruction, " ", 1)
         bparts = [p.encode("utf-8") for p in parts]
-        status, response, _ = client.get(key=bparts[1])
+        status, response, end = client.get(key=bparts[1])
         if status == b"KEY NOT FOUND " + END:
             response = "KEY NOT FOUND \r\n"
-        print(f"CLIENT{id}: {i}th instruction {instruction!r} received response: {response!r}")
+        print(
+            f"CLIENT{id}: {i}th instruction {instruction!r} received response: {status, response, end}")
 
     elif instruction.startswith("set"):
         parts = lsplit_bytes(instruction, " ", 2)
         bparts = [p.encode("utf-8") for p in parts]
         response = client.set(key=bparts[1], value=bparts[2])
-        print(f"CLIENT{id}: {i}th instruction {instruction!r} received response: {response!r}")
+        print(
+            f"CLIENT{id}: {i}th instruction {instruction!r} received response: {response!r}")
 
-    else: 
+    else:
         parts = lsplit_bytes(instruction, " ", 2)
         bparts = [p.encode("utf-8") for p in parts]
-        response = client.set(key=bparts[1], value=bparts[2])    
-        print(f"CLIENT{id}: {i}th instruction {instruction!r} received response: {response!r}")
+        response = client.set(key=bparts[1], value=bparts[2])
+        print(
+            f"CLIENT{id}: {i}th instruction {instruction!r} received response: {response!r}")
 
 # close connection
 client.close()

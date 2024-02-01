@@ -7,7 +7,7 @@ Client is a class that connects to a server and sends requests to the server.
 
 KVStore is a class that is used by the Server class to store key-value pairs. It is a simple file-based key-value store.
 
-See the docstrings of each class for more information, or the README.pdf for a high-level overview of the project.
+See the docstrings of each class for more information, or the REPORT.pdf for a high-level overview of the project.
 
 7 constants are defined at the top of the file:
 - END: The end of a message. Only certain processes use this to delimit messages. 
@@ -249,6 +249,8 @@ class Client:
         key = key.ljust(KEY_SIZE, b" ")
         text_msg = b" ".join((b"get", key, END))
         time.sleep(SLEEPTIME)
+
+        print(text_msg)  # ^
         self.s.sendall(text_msg)
         # receive components of the response
         header = []
@@ -312,6 +314,9 @@ class Client:
         key = key.ljust(KEY_SIZE, b" ")
         text_msg = self._set_msg(key, value)
         data_msg = value + b' ' + END
+
+        print(text_msg)  # ^
+        print(data_msg)  # ^
 
         # continue trying to send message until server sends acknowledgement and status
         status = b""
