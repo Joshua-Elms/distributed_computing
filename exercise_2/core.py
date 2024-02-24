@@ -1,5 +1,8 @@
 from pathlib import Path
 import socket
+import json
+import time
+
 
 class Message:
     def __init__(self, PID: None, TS: None, body: None):
@@ -30,6 +33,9 @@ class Message:
         else:
             return False
 
+    def __str__(self):
+        return f"Message: {self.PID}-{self.TS}-{self.body}"
+
 
 class MessageQueue:
     def __init__(self):
@@ -57,70 +63,112 @@ class MessageQueue:
         s = "Queue state\n-----------\n"
         newline = "\n"
         for i, msg in enumerate(self.queue):
-            s += f"Queue[{i}]:\n"
+            s += f"Queue[{i}]\n"
             s += f"Acks: {self.acks[f'{msg.PID}-{msg.TS}']}\n"
-            s += f"PID:{msg.PID}-TS:{msg.TS}-{msg.body}{newline*(i != len(self.queue)-1)}\n"
+            s += str(msg) + "\n"*((i != len(self.queue)-1) + 1)
+            # s += f"PID:{msg.PID}-TS:{msg.TS}-{msg.body}{newline*(i != len(self.queue)-1)}\n"
 
+        if len(self.queue) == 0:
+            s += "Empty\n"
         s += "-----------\n"
 
         return s
 
 
 class Process:
-    def __init__(self, config_index, config_file: Path):
-        config = self.load_config(config_file)
-        self.pid = config_index
-        self. = config_index
+    def __init__(self, config_index: int, config_file: Path, timeout: int = 10):
+        config = self._load_config(config_file)
+        # PID is also the port number
+        self.PID = config[f"port_for_{config_index}"]
+        # add all ports to party
+        self.party = [port for port in config.values()]
+        # starting timestamp doesn't matter
         self.ts = 0
-        self.party = party
         self.queue = MessageQueue()
         self.delivered_msgs = set()
+        # create socket
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # allow reuse of socket
+        self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.s.bind(("127.0.0.1", self.PID))
+        self.timeout = timeout
+        self.s.settimeout(self.timeout)
+        self.conn = None
+        self.addr = None
 
-    def load_config(self, config_file):
+        self.main_loop()
+        self.s.close()
+
+
+    def main_loop(self):
+        self.s.listen(100)
+        while True:
+            try:
+                self.conn, self.addr = self.s.accept()
+                with self.conn:
+                    print(f"Connected by {self.addr}")
+                    while True:
+                        data = self.conn.recv(1024)
+                        if not data:
+                            break
+                        msg = Message(None, None, None)
+                        msg.decode(data)
+                        self._handle_receive(msg)
+            except socket.timeout:
+                print(f"Process {self.PID} timed out")
+                break
+
+    def _load_config(self, config_file: Path) -> dict:
         # Load config file and return dictionary of process IDs and ports
-        pass
+        with open(config_file, "r") as f:
+            return json.load(f)
 
     def logical_clock(self):
         self.ts += 1
 
-    def broadcast(self, msg_body):
+    def broadcast(self, msg_body: str):
         self.logical_clock()
-        msg = f"{self.pid}-{self.ts}-{msg_body}"
-        self.queue.append(msg)
-        self.queue.sort(key=lambda x: int(
-            x.split('-')[1]))  # Sort by timestamp
-        self.send_to_all(msg)
+        # create message to broadcast
+        msg = Message(self.PID, self.TS, msg_body)
+        self.queue.enqueue(msg)  # enqueue() handles self ack
+        self.queue.sort()
+        self._send_to_all(msg.encode())
 
-    def send_to_all(self, msg: Message):
-        for process_id, port in self.config.items():
-            if process_id != self.pid:
-                # Send message to process_id's port
-                pass
+    def _send_to_all(self, msg: Message):
+        for process_id in self.party:
+            if process_id != self.PID:  # don't send to self, handled in broadcast()
+                self.send(process_id, msg)
 
-    def receive(self, msg):
-        parts = msg.split('-')
-        recv_pid = parts[0]
-        recv_ts = int(parts[1])
-        recv_body = '-'.join(parts[2:])
+    def send()
+
+    def _handle_receive(self, msg: Message):
         self.logical_clock()
-        self.pending_acks[msg].add(self.pid)
-        self.broadcast(f"ack({recv_pid}-{recv_ts})")
-        self.attempt_to_deliver()
+        if msg.body[:3] == "ack":  # case where the message is an ack
+            self.queue.acks[f"{msg.PID}-{msg.TS}"].add(msg.PID)
+            self._attempt_to_deliver()  # only need to attempt msg delivery when recv an ack
 
-    def attempt_to_deliver(self):
-        head = self.queue[0]
-        acks = self.pending_acks[head]
-        if all(pid in acks for pid in self.party) and head not in self.delivered_msgs:
-            self.delivered_msgs.add(head)
-            self.queue.pop(0)
+        else:  # case where the message is not an ack
+            self.queue.enqueue(msg)
+            ack_msg = Message(self.PID, self.ts, f"ack:{msg.PID}-{msg.TS}")
+            self.broadcast(ack_msg.encode())
+
+    def _attempt_to_deliver(self):
+        head = self.queue.peek()
+        acks = self.queue.acks[f"{head.PID}-{head.TS}"]
+        if all(pid in acks for pid in self.party):
+            print(f"Process {self.PID} delivering message: {head}")
+            self.queue.dequeue()
+            self.delivered_msgs.add(head)  # optional, but useful for testing
 
 
 if __name__ == "__main__":
+    config_idx = 0
+    config_file = Path("config_0.json")
     m1 = Message(1, 2, "Hello")
     m2 = Message(2, 3, "World")
-    q = MessageQueue()
-    q.enqueue(m2)
-    q.enqueue(m1)
-    print(q)
-    q.sort()
-    print(q)
+    p1 = Process(config_idx, config_file)
+    p1.queue.enqueue(m2)
+    p1.queue.enqueue(m1)
+    print(p1.queue)
+    p1.queue.sort()
+    print(p1.queue)

@@ -1,0 +1,11 @@
+{
+    "0": {
+        "port": 50000,
+        "messages": [
+            [10, "from eden"],
+            [20, "someone new"]
+        ]
+    }
+    "port_for_1": 50001,
+    "port_for_2": 50002
+}
