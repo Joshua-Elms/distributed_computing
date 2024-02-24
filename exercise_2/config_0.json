@@ -5,7 +5,12 @@
             [10, "from eden"],
             [20, "someone new"]
         ]
+    },
+    "1": {
+        "port": 50001,
+        "messages": [
+            [7, "in a week"],
+            [13, "angel of small death"]
+        ]
     }
-    "port_for_1": 50001,
-    "port_for_2": 50002
 }
