@@ -18,12 +18,10 @@ class Message:
 
     def decode(self, msg: bytes):
         msg = msg.decode("utf-8")
-        print(msg)
         parts = msg.split("-")
         self.PID = int(parts[0])
         self.TS = int(parts[1])
         self.body = "-".join(parts[2:])  # body could include dashes
-        print("Here's me: ", self)
 
     def __lt__(self, other: "Message"):
         if self.TS < other.TS:
@@ -36,7 +34,7 @@ class Message:
             return False
 
     def __str__(self):
-        return f"Message: {self.PID}-{self.TS}-{self.body}"
+        return f"{self.PID}-{self.TS}-{self.body}"
 
 
 class MessageQueue:
@@ -76,12 +74,13 @@ class MessageQueue:
 
 
 class Process:
-    def __init__(self, config_index: int, config_file: Path, timeout: int = 120):
+    def __init__(self, config_index: int, config_file: Path, timeout: int = 30):
         config = self._load_config(config_file)
         # PID is also the port number
         self.PID = config[f"{config_index}"]["port"]
         # add all ports to party
-        self.party = [port for port in [val["port"] for val in config.values()]]
+        self.party = [port for port in [val["port"]
+                                        for val in config.values()]]
         # starting timestamp doesn't matter
         self.TS = 0
         self.queue = MessageQueue()
@@ -98,14 +97,13 @@ class Process:
 
         self.main_loop()
 
-
     def main_loop(self):
         self.s.listen(100)
         while True:
             try:
                 self.conn, self.addr = self.s.accept()
                 with self.conn:
-                    print(f"Connected by {self.addr}")
+                    # print(f"Connected by {self.addr}")
                     parts = []
                     while True:
                         part = self.conn.recv(1024)
@@ -115,7 +113,7 @@ class Process:
                 raw_msg = b"".join(parts)
                 msg = Message(None, None, None)
                 msg.decode(raw_msg)
-                print("Received message: ", msg)
+                print(f"Process {self.PID} received message: {msg}")
                 self._handle_receive(msg)
             except socket.timeout:
                 print(f"Process {self.PID} timed out")
@@ -129,13 +127,12 @@ class Process:
     def logical_clock(self):
         self.TS += 1
 
-    def broadcast(self, msg_body: str):
+    def broadcast(self, msg: Message):
+        assert isinstance(msg, Message), "msg must be of type Message"
         self.logical_clock()
-        # create message to broadcast
-        msg = Message(self.PID, self.TS, msg_body)
         self.queue.enqueue(msg)  # enqueue() handles self ack
         self.queue.sort()
-        self._send_to_all(msg.encode())
+        self._send_to_all(msg)
 
     def _send_to_all(self, msg: Message):
         for process_id in self.party:
@@ -157,31 +154,82 @@ class Process:
             except ConnectionRefusedError as e:  # if server is not listening, wait 5 seconds and try again
                 if time.time() < start + self.timeout:
                     time.sleep(5)
-                    print(f"Process {self.PID} could not connect to {send_to_port}, this whole thing is gonna blow")
+
+                else:
+                    print(
+                        f"Process {self.PID} could not connect to {send_to_port}, this whole thing is gonna blow")
                     quit()
 
         sock.sendall(msg.encode())
         sock.close()
 
-
     def _handle_receive(self, msg: Message):
         self.logical_clock()
-        if msg.body[:3] == "ack":  # case where the message is an ack
-            self.queue.acks[f"{msg.PID}-{msg.TS}"].add(msg.PID)
+        if msg.body[:4] == "ack:":  # case where the message is an ack
+            acked_msg = msg.body[4:]
+            ack_PID, ack_TS = acked_msg.split("-")
+            self.queue.acks[f"{ack_PID}-{ack_TS}"].add(msg.PID)
             self._attempt_to_deliver()  # only need to attempt msg delivery when recv an ack
 
-        else:  # case where the message is not an ack
+        elif msg.body[:4] == "app:":  # case where the message is an application message
+            new_msg = Message(self.PID, self.TS, msg.body[4:])
+            print(
+                f"Process {self.PID} broadcasting application message: {new_msg}")
+            self.broadcast(new_msg)
+
+        else:  # case where the message is an original message from another process
             self.queue.enqueue(msg)
             ack_msg = Message(self.PID, self.TS, f"ack:{msg.PID}-{msg.TS}")
-            self.broadcast(ack_msg.encode())
+            self.broadcast(ack_msg)
 
     def _attempt_to_deliver(self):
         head = self.queue.peek()
         acks = self.queue.acks[f"{head.PID}-{head.TS}"]
         if all(pid in acks for pid in self.party):
+            # actual delivery of message
             print(f"Process {self.PID} delivering message: {head}")
             self.queue.dequeue()
             self.delivered_msgs.add(head)  # optional, but useful for testing
+
+
+class Application:
+    def __init__(self, config_index: int, config_file: Path, timeout: int = 30):
+        config = self._load_config(config_file)
+        self.middleware_PID = config[f"{config_index}"]["port"]
+        self.messages = config[f"{config_index}"]["messages"]
+        self.timeout = timeout
+
+        self._main_loop()
+
+    def _main_loop(self):
+        # create a socket object, different protocols could be used
+        for i, (t, msg) in enumerate(self.messages):
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            time.sleep(t)
+            app_msg = Message(0, 0, f"app:{msg}")
+            start = time.time()
+            while time.time() < start + self.timeout:
+                try:
+                    # connect this socket to established server
+                    sock.connect(("127.0.0.1", self.middleware_PID))
+                    break
+
+                except ConnectionRefusedError as e:  # if server is not listening, wait 5 seconds and try again
+                    if time.time() < start + self.timeout:
+                        time.sleep(5)
+
+                    else:
+                        print(
+                            f"App {self.PID} could not connect to {self.middleware_PID}, this whole thing is gonna blow")
+                        quit()
+
+            sock.sendall(app_msg.encode())
+            sock.close()
+
+    def _load_config(self, config_file: Path) -> dict:
+        # Load config file and return dictionary of process IDs and ports
+        with open(config_file, "r") as f:
+            return json.load(f)
 
 
 if __name__ == "__main__":
