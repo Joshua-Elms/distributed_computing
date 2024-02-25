@@ -2,15 +2,19 @@
     "0": {
         "port": 50000,
         "messages": [
-            [5, "from eden"],
-            [10, "someone new"]
+            [1, "A"]
         ]
     },
     "1": {
         "port": 50001,
         "messages": [
-            [7, "in a week"],
-            [13, "angel of small death"]
+            [2, "B"]
+        ]
+    },
+    "2": {
+        "port": 50002,
+        "messages": [
+            [3, "C"]
         ]
     }
 }

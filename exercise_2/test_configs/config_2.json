@@ -1,0 +1,42 @@
+{
+    "0": {
+        "port": 50000,
+        "messages": [[1, "Message A"]]
+    },
+    "1": {
+        "port": 50001,
+        "messages": []
+    },
+    "2": {
+        "port": 50002,
+        "messages": []
+    },
+    "3": {
+        "port": 50003,
+        "messages": []
+    },
+    "4": {
+        "port": 50004,
+        "messages": []
+    },
+    "5": {
+        "port": 50005,
+        "messages": []
+    },
+    "6": {
+        "port": 50006,
+        "messages": []
+    },
+    "7": {
+        "port": 50007,
+        "messages": []
+    },
+    "8": {
+        "port": 50008,
+        "messages": []
+    },
+    "9": {
+        "port": 50009,
+        "messages": [[1.001, "Message B"]]
+    }
+}
