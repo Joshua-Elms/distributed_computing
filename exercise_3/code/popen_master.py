@@ -1,10 +1,3 @@
-#   Hello World server in Python
-#   Binds REP socket to tcp://*:5555
-#   Expects b"Hello" from client, replies with b"World"
-
-import time
-import zmq
-
 import zmq
 import json
 import sys
@@ -19,10 +12,10 @@ socket.bind("tcp://*:9999")
 while True:
     #  Wait for next request from client
     message = socket.recv()
-    print("Received request: %s" % message)
+    print(f"Received request: {message}")
 
     #  Do some 'work'
-    time.sleep(1)
+    time.sleep(config['sleep'])
 
     #  Send reply back to client
-    socket.send(b"World")
+    socket.send(config['response'].encode())
