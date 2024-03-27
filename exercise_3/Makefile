@@ -8,10 +8,10 @@ venv/bin/activate: requirements.txt
 venv: venv/bin/activate
 
 run: venv
-	./venv/bin/python3 code/run_all.py
+	./venv/bin/python3 code/testing.py
 
 clean:
 	rm -rf venv
-	find . -type f -name '*.pyc' -delete
+	rm -rf code/__pycache__
 
 .PHONY: all venv run clean

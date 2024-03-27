@@ -1,7 +1,9 @@
 import zmq
 import json
 import sys
+import shutil
 import time
+from pathlib import Path
 
 
 class Process:
@@ -13,9 +15,9 @@ class Process:
         self.M = len(self.mids)
         self.R = len(self.rids)
         self.master_id = config["master_id"]
-        self.input_file = config["input_file"]
-        self.tmp_dir = config["tmp_dir"]
-        self.output_file = config["output_file"]
+        self.input_file = Path(config["input_file"])
+        self.tmp_dir = Path(config["tmp_dir"])
+        self.output_file = Path(config["output_file"])
         self.map_f = eval(config["map_f"])
         self.reduce_f = eval(config["reduce_f"])
         self.context = zmq.Context()
@@ -46,6 +48,11 @@ class Process:
 class Master(Process):
     def __init__(self, config):
         super().__init__(config)
+        if self.tmp_dir.exists():  # delete tmp dir if exists
+            shutil.rmtree(self.tmp_dir)
+        if self.output_file.exists():  # delete output file if exists
+            self.output_file.unlink()
+        self.tmp_dir.mkdir()
         self.run_mapreduce()
 
     def run_mapreduce(self):
@@ -57,10 +64,7 @@ class Master(Process):
         while len(msgs) < self.M:
             msg = self.socket.recv_string()
             msgs.append(msg)
-            self.socket.send_string(f"work1")
-
-        print(
-            "Received all messages from Mappers, now listening for them to finish work...")
+            self.socket.send_string(f"work{len(msgs) % 2}")
 
         # stage 2: Reducers wait for Mappers to finish processing and sending data (B:_ M:_ R:_)
 
@@ -73,12 +77,29 @@ class Master(Process):
         # stage 6: Reducers tell Master they are done (B:S M:_ R:L)
         msgs = []
         while len(msgs) < self.R:
-            msg = self.socket.recv_string()
-            msgs.append(msg)
+            try:
+                msg = self.socket.recv_string()
+                msgs.append(msg)
+                self.socket.send_string(str(time.time()))
+
+            except zmq.error.ZMQError as e:
+                print("Error receiving message from reducer")
 
         # stage 7: Master aggregates output files from Reducers (B:_ M:_ R:_)
         self.aggregate_output()
         self.clear_socket()
+
+    def aggregate_output(self):
+
+        with open(self.output_file, "a") as f_out:
+            for fpath in self.tmp_dir.glob("*.txt"):
+                f_out.write(fpath.name + "\n")
+
+                with open(fpath, "r") as f_in:
+                    data = f_in.readlines()
+
+                f_out.writelines(data)
+                f_out.write("\n")
 
 
 class Mapper(Process):
@@ -105,6 +126,7 @@ class Mapper(Process):
             self.socket = self.create_socket("REQ")
             self.connect(rid)
             self.socket.send_string(msg)
+            self.socket.recv_string()
 
         # stage 4 onwards: Mappers do nothing
         self.clear_socket()
@@ -131,19 +153,17 @@ class Reducer(Process):
         self.bind(self.my_id)
         msgs = []
         while len(msgs) < self.M:
-            try:
-                msg = self.socket.recv_string()
-                msgs.append(msg)
-
-            except zmq.error.ZMQError as e:
-                msgs.append(msg)
+            msg = self.socket.recv_string()
+            msgs.append(msg)
+            self.socket.send_string(str(time.time()))
 
         print(f"R{self.my_id}: received all messages from mappers: {msgs}")
 
         self.clear_socket()
 
         # stage 4: Reducer processes data (B:_ M:_ R:_)
-        output = self.process_data(msgs)
+        parsed = self.parse(msgs)
+        output = self.process_data(parsed)
 
         # stage 5: Reducer writes processed date to output file
         self.write_output(output)
@@ -152,6 +172,29 @@ class Reducer(Process):
         self.socket = self.create_socket("REQ")
         self.connect(self.master_id)
         self.socket.send_string(f"done (R:{self.my_id})")
+        self.socket.recv_string()
 
         # stage 7: Reducer does nothing
         self.clear_socket()
+
+    def process_data(self, data):
+        result = {k: 0 for k, v in data}
+        for k, v in data:
+            result[k] = self.reduce_f(result[k], v)
+
+        # to string
+        items = []
+        for k, v in result.items():
+            items.append(f"{k}:{v}")
+
+        return " ".join(items)
+
+    def write_output(self, output):
+        loc = self.tmp_dir / f"{self.my_id}.txt"
+        with open(loc, "w") as f:
+            f.write(output)
+
+    def parse(self, data):
+        stripped_msgs = [msg[1:-1] for msg in data]
+        joined_msgs = " ".join(stripped_msgs)
+        return [tuple(kv.split(":")) for kv in joined_msgs.split()]

@@ -2,6 +2,7 @@ from core import *
 import time
 import subprocess
 import json
+import os
 from pathlib import Path
 
 
@@ -17,22 +18,26 @@ def main(config_path: Path):
     procs = []
 
     ### run MapReduce ###
+    my_env = os.environ.copy()
+    my_env["PYTHONPATH"] = f"{os.getcwd()}/code/:{my_env['PYTHONPATH']}"
+    my_env["PYTHONHASHSEED"] = "434"
+
 
     # start Master
     sconf = json.dumps({**config, "my_id": config["master_id"]})
-    proc = subprocess.Popen(["python", "popen_master.py", sconf])
+    proc = subprocess.Popen(["python", "code/popen_master.py", sconf], env=my_env)
     procs.append(proc)
 
     # start Mappers
     for mid in config["mapper_ids"]:
         sconf = json.dumps({**config, "my_id": mid})
-        proc = subprocess.Popen(["python", "popen_mapper.py", sconf])
+        proc = subprocess.Popen(["python", "code/popen_mapper.py", sconf], env=my_env)
         procs.append(proc)
 
     # start Reducers
     for rid in config["reducer_ids"]:
         sconf = json.dumps({**config, "my_id": rid})
-        proc = subprocess.Popen(["python", "popen_reducer.py", sconf])
+        proc = subprocess.Popen(["python", "code/popen_reducer.py", sconf], env=my_env)
         procs.append(proc)
 
     ### end MapReduce ###
@@ -54,5 +59,5 @@ def main(config_path: Path):
 
 if __name__ == "__main__":
     main(
-        Path("../configs/dev.json")
+        Path("configs/dev.json")
     )
