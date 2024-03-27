@@ -56,15 +56,18 @@ class Master(Process):
         self.run_mapreduce()
 
     def run_mapreduce(self):
+        # stage 0: Master divides input data before sending to Mappers
+        input_data = self.chunk_input_data()
+        
         # stage 1: Master (B) sends data to Mappers (M) once they send a message (B:S M:L R:_)
         self.socket = self.create_socket("REP")
         self.bind(self.master_id)
 
         msgs = []
-        while len(msgs) < self.M:
+        for chunk in input_data:
             msg = self.socket.recv_string()
             msgs.append(msg)
-            self.socket.send_string(f"work{len(msgs) % 2}")
+            self.socket.send_string(chunk)
 
         # stage 2: Reducers wait for Mappers to finish processing and sending data (B:_ M:_ R:_)
 
@@ -100,6 +103,14 @@ class Master(Process):
 
                 f_out.writelines(data)
                 f_out.write("\n")
+
+    def chunk_input_data(self):
+        with open(self.input_file, "r") as f:
+            data = f.readlines()
+
+        chunk_size = len(data) // self.M
+        chunks = [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
+        return chunks
 
 
 class Mapper(Process):
