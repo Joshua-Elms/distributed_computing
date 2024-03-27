@@ -1,9 +1,10 @@
 {
-    "mappers": [],
-    "reducers": [],
-    "input_file": [],
-    "tmp_dir": [],
-    "output_file": [],
-    "map_f": "lambda x: x",
+    "master_id": 30000,
+    "mapper_ids": [40000, 40001],
+    "reducer_ids": [50000, 50001],
+    "input_file": "data.txt",
+    "tmp_dir": "tmp/",
+    "output_file": "output.txt",
+    "map_f": "lambda x: (x, 1)",
     "reduce_f": "lambda y: y"
 }

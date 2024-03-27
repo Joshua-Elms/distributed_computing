@@ -19,17 +19,20 @@ def main(config_path: Path):
     ### run MapReduce ###
 
     # start Master
-    proc = subprocess.Popen(["python", "popen_master.py", json.dumps(config)])
+    sconf = json.dumps({**config, "my_id": config["master_id"]})
+    proc = subprocess.Popen(["python", "popen_master.py", sconf])
     procs.append(proc)
 
     # start Mappers
-    for mapper in config["mappers"]:
-        proc = subprocess.Popen(["python", "popen_mapper.py", json.dumps(config)])
+    for mid in config["mapper_ids"]:
+        sconf = json.dumps({**config, "my_id": mid})
+        proc = subprocess.Popen(["python", "popen_mapper.py", sconf])
         procs.append(proc)
 
     # start Reducers
-    for reducer in config["reducers"]:
-        proc = subprocess.Popen(["python", "popen_reducer.py", json.dumps(config)])
+    for rid in config["reducer_ids"]:
+        sconf = json.dumps({**config, "my_id": rid})
+        proc = subprocess.Popen(["python", "popen_reducer.py", sconf])
         procs.append(proc)
 
     ### end MapReduce ###
@@ -51,5 +54,5 @@ def main(config_path: Path):
 
 if __name__ == "__main__":
     main(
-        Path("configs/dev.json")
+        Path("../configs/dev.json")
     )

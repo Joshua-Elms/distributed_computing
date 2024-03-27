@@ -11,26 +11,28 @@ context = zmq.Context()
 
 #  Socket to talk to server
 print("Connecting to hello world server…")
-socket = context.socket(zmq.REQ)
-socket.connect("tcp://127.0.0.1:9999")
+C = context.socket(zmq.REQ)
+C.connect("tcp://127.0.0.1:9999")
 
 #  Do 10 requests, waiting each time for a response
 for request in range(3):
     print(f"Sending request {request} …")
-    socket.send(b"Hello")
+    C.send(b"Hello")
 
     #  Get the reply.
-    message = socket.recv()
+    message = C.recv()
     print(f"Received reply {message}")
 
 time.sleep(1)
-socket.send(b"exit")
-socket.disconnect("tcp://127.0.0.1:9999")
-socket.bind("tcp://*:9808")
-while True:
-    msg = socket.recv()
-    print(f"Received: {msg}")
+C.send(b"exit")
+S = context.socket(zmq.REP)
+# S.disconnect("tcp://127.0.0.1:9999")
+S.bind("tcp://*:9808")
+msg = S.recv()
+print(f"Received: {msg}")
     
-    time.sleep(1)
+time.sleep(1)
 
-    socket.send(b"Final communique")
+S.send(b"Final communique")
+
+
