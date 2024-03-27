@@ -11,7 +11,6 @@ import sys
 import time
 from core import *
 
-config = json.loads(sys.argv[1])
 context = zmq.Context()
 socket = context.socket(zmq.REP)
 socket.bind("tcp://*:9999")
@@ -19,6 +18,9 @@ socket.bind("tcp://*:9999")
 while True:
     #  Wait for next request from client
     message = socket.recv()
+    if message == b"exit":
+        print("Received exit")
+        break
     print("Received request: %s" % message)
 
     #  Do some 'work'
@@ -26,3 +28,9 @@ while True:
 
     #  Send reply back to client
     socket.send(b"World")
+
+time.sleep(1)
+socket.connect("tcp://127.0.0.1:9808")
+socket.send(b"Holla back")
+msg = socket.recv()
+print(f"Received: {msg}")

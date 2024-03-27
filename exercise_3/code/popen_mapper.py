@@ -5,6 +5,10 @@ import time
 from core import *
 
 config = json.loads(sys.argv[1])
+mappers = config["mappers"]
+reducer = config["reducers"]
+
+
 context = zmq.Context()
 
 #  Socket to talk to server

@@ -19,17 +19,17 @@ def main(config_path: Path):
     ### run MapReduce ###
 
     # start Master
-    proc = subprocess.Popen(["python", "popen_master.py", json.dumps(config["master"])])
+    proc = subprocess.Popen(["python", "popen_master.py", json.dumps(config)])
     procs.append(proc)
 
     # start Mappers
-    for k, v in config["mappers"].items():
-        proc = subprocess.Popen(["python", "popen_mapper.py", json.dumps(v)])
+    for mapper in config["mappers"]:
+        proc = subprocess.Popen(["python", "popen_mapper.py", json.dumps(config)])
         procs.append(proc)
 
     # start Reducers
-    for k, v in config["reducers"].items():
-        proc = subprocess.Popen(["python", "popen_reducer.py", json.dumps(v)])
+    for reducer in config["reducers"]:
+        proc = subprocess.Popen(["python", "popen_reducer.py", json.dumps(config)])
         procs.append(proc)
 
     ### end MapReduce ###

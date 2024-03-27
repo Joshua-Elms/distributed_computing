@@ -5,6 +5,7 @@
 #
 
 import zmq
+import time
 
 context = zmq.Context()
 
@@ -14,10 +15,22 @@ socket = context.socket(zmq.REQ)
 socket.connect("tcp://127.0.0.1:9999")
 
 #  Do 10 requests, waiting each time for a response
-for request in range(10):
-    print("Sending request %s …" % request)
+for request in range(3):
+    print(f"Sending request {request} …")
     socket.send(b"Hello")
 
     #  Get the reply.
     message = socket.recv()
-    print("Received reply %s [ %s ]" % (request, message))
+    print(f"Received reply {message}")
+
+time.sleep(1)
+socket.send(b"exit")
+socket.disconnect("tcp://127.0.0.1:9999")
+socket.bind("tcp://*:9808")
+while True:
+    msg = socket.recv()
+    print(f"Received: {msg}")
+    
+    time.sleep(1)
+
+    socket.send(b"Final communique")

@@ -1,11 +1,9 @@
 {
-    "master": {},
-    "mappers": [
-        {},
-        {}
-    ],
-    "reducers": [
-        {},
-        {}
-    ]
+    "mappers": [],
+    "reducers": [],
+    "input_file": [],
+    "tmp_dir": [],
+    "output_file": [],
+    "map_f": "lambda x: x",
+    "reduce_f": "lambda y: y"
 }
