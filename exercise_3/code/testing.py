@@ -59,5 +59,5 @@ def main(config_path: Path):
 
 if __name__ == "__main__":
     main(
-        Path("configs/dev.json")
+        Path("configs/dev_ii.json")
     )

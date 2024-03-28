@@ -15,7 +15,7 @@ class Process:
         self.M = len(self.mids)
         self.R = len(self.rids)
         self.master_id = config["master_id"]
-        self.input_file = Path(config["input_file"])
+        self.input_dir = Path(config["input_dir"])
         self.tmp_dir = Path(config["tmp_dir"])
         self.output_file = Path(config["output_file"])
         self.map_f = eval(config["map_f"])
@@ -57,17 +57,21 @@ class Master(Process):
 
     def run_mapreduce(self):
         # stage 0: Master divides input data before sending to Mappers
-        input_data = self.chunk_input_data()
+        data, idxs = self.chunk_input_data()
         
         # stage 1: Master (B) sends data to Mappers (M) once they send a message (B:S M:L R:_)
         self.socket = self.create_socket("REP")
         self.bind(self.master_id)
 
         msgs = []
-        for chunk in input_data:
+        for i, idx_sublist in idxs.items():
             msg = self.socket.recv_string()
             msgs.append(msg)
-            self.socket.send_string(chunk)
+            print(idxs)
+            print(idx_sublist)
+            print(data)
+            subset = {k: data[k] for k in idx_sublist}
+            self.socket.send_json(subset)
 
         # stage 2: Reducers wait for Mappers to finish processing and sending data (B:_ M:_ R:_)
 
@@ -93,24 +97,37 @@ class Master(Process):
         self.clear_socket()
 
     def aggregate_output(self):
+        all_data = []
+        for fpath in self.tmp_dir.glob("*.txt"):
+            with open(fpath, "r") as f_in:
+                data = f_in.readlines()
+            
+            all_data.extend(data)
+
+        all_data = " ".join(all_data)
 
         with open(self.output_file, "a") as f_out:
-            for fpath in self.tmp_dir.glob("*.txt"):
-                f_out.write(fpath.name + "\n")
+            f_out.writelines(all_data)
 
-                with open(fpath, "r") as f_in:
-                    data = f_in.readlines()
-
-                f_out.writelines(data)
-                f_out.write("\n")
 
     def chunk_input_data(self):
-        with open(self.input_file, "r") as f:
-            data = f.readlines()
+        input_data = []
+        for f in self.input_dir.glob("*.txt"):
+            with open(f, "r") as f_in:
+                data = f_in.read()
 
-        chunk_size = len(data) // self.M
-        chunks = [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
-        return chunks
+            input_data.append(data)
+
+        if len(input_data) == 0:
+            raise ValueError("No input data found")
+        
+        elif len(input_data) < self.M:
+            raise ValueError(f"Only {len(input_data)} input files found, rerun with {len(input_data)} mappers instead of {self.M}")
+        
+        chunks = {i: input_data[i] for i in range(len(input_data))}
+        chunk_size = len(input_data) // self.M
+        idx_chunks = {i // self.M : list(range(i, i + chunk_size)) for i in range(0, len(input_data), chunk_size)}
+        return chunks, idx_chunks
 
 
 class Mapper(Process):
@@ -124,7 +141,7 @@ class Mapper(Process):
         time.sleep(1)
         self.connect(self.master_id)
         self.socket.send_string(f"online (M:{self.my_id})")
-        data = self.socket.recv_string()
+        data = self.socket.recv_json()
 
         # stage 2: Mappers process data (B:_ M:_ R:_)
         kv_pairs = self.process_data(data)
@@ -144,8 +161,9 @@ class Mapper(Process):
 
     def process_data(self, data):
         out = []
-        for chunk in data.split():
-            out.append(self.map_f(chunk))
+        for k, v in data.items():
+            for chunk in v.split():
+                out.append(self.map_f(k, chunk))
         return out
 
 
