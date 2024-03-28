@@ -1,10 +1,10 @@
 {
     "master_id": 30000,
-    "mapper_ids": [40000, 40001, 40002, 40003, 40004, 40005, 40006],
+    "mapper_ids": [40000, 40001],
     "reducer_ids": [50000, 50001, 50002, 50003],
-    "input_dir": "data/wuthering_heights",
+    "input_dir": "data/test_letters",
     "tmp_dir": "output/tmp/",
-    "output_file": "output/word_count_dev.txt",
+    "output_file": "output/parallel_WC.txt",
     "map_f": "lambda d, x: (x, 1)",
     "reduce_base_type": "int()",
     "reduce_f": "lambda x, y: x + y"

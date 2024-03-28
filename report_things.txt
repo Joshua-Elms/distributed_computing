@@ -4,11 +4,11 @@
 4. 
 
 Remaining Tasks
-- Implement word count and inverted index serially
+- (X) Implement word count and inverted index serially
 - Add dynamic logging to each process to watch what they're doing for report
 - Download a few other datasets to test
 - Record runtime for MapReduce vs. serial
 - Compare them in a plot (hopefully MapReduce beats serial for large enough data)
-- Validate the correctness of MapReduce by comparing it with serial version
+- (X) Validate the correctness of MapReduce by comparing it with serial version
 - Write report that includes visualization as well as everything asked for
 - Try zipping this, sending to BR200, and testing over there

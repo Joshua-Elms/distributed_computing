@@ -2,9 +2,9 @@
     "master_id": 30000,
     "mapper_ids": [40000, 40001],
     "reducer_ids": [50000, 50001, 50002],
-    "input_dir": "data/wuthering_heights",
+    "input_dir": "data/test_letters",
     "tmp_dir": "output/tmp/",
-    "output_file": "output/inverted_index_dev.txt",
+    "output_file": "output/parallel_II.txt",
     "map_f": "lambda d, x: (x, d)",
     "reduce_base_type": "set()",
     "reduce_f": "lambda x, y: x.union({y})"

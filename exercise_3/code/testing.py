@@ -22,22 +22,27 @@ def main(config_path: Path):
     my_env["PYTHONPATH"] = f"{os.getcwd()}/code/:{my_env['PYTHONPATH']}"
     my_env["PYTHONHASHSEED"] = "434"
 
+    # timing
+    start = time.perf_counter()
 
     # start Master
     sconf = json.dumps({**config, "my_id": config["master_id"]})
-    proc = subprocess.Popen(["python", "code/popen_master.py", sconf], env=my_env)
+    proc = subprocess.Popen(
+        ["python", "code/popen_master.py", sconf], env=my_env)
     procs.append(proc)
 
     # start Mappers
     for mid in config["mapper_ids"]:
         sconf = json.dumps({**config, "my_id": mid})
-        proc = subprocess.Popen(["python", "code/popen_mapper.py", sconf], env=my_env)
+        proc = subprocess.Popen(
+            ["python", "code/popen_mapper.py", sconf], env=my_env)
         procs.append(proc)
 
     # start Reducers
     for rid in config["reducer_ids"]:
         sconf = json.dumps({**config, "my_id": rid})
-        proc = subprocess.Popen(["python", "code/popen_reducer.py", sconf], env=my_env)
+        proc = subprocess.Popen(
+            ["python", "code/popen_reducer.py", sconf], env=my_env)
         procs.append(proc)
 
     ### end MapReduce ###
@@ -56,8 +61,20 @@ def main(config_path: Path):
     for proc in procs:
         proc.kill()
 
+    # timing
+    stop = time.perf_counter()
+
+    return stop - start
+
 
 if __name__ == "__main__":
-    main(
-        Path("configs/dev.json")
-    )
+    t = main(Path("configs/dev_ii.json"))
+
+    # timing loop
+    n = 10
+    tlst = []
+    for _ in range(n):
+        t = main(Path("configs/dev_ii.json"))
+        tlst.append(t)
+
+    print(f"Average time with {n} iterations: {sum(tlst) / n:.4f}s")
