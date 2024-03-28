@@ -1,6 +1,0 @@
-Stages: 
-
-1. (X) Get make and pip set up
-2. (X) Get ZMQ set up
-3. ( ) Write the rest of my steps
-4. 

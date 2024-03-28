@@ -1,10 +1,10 @@
 {
     "master_id": 30000,
-    "mapper_ids": [40000, 40001, 40002, 40003],
+    "mapper_ids": [40000, 40001],
     "reducer_ids": [50000, 50001, 50002],
     "input_dir": "data/test_letters",
     "tmp_dir": "tmp/",
-    "output_file": "word_count_dev.txt",
+    "output_file": "inverted_index_dev.txt",
     "map_f": "lambda d, x: (x, d)",
     "reduce_f": "lambda x, y: list(x) if not isinstance(x, list) else x + [y]"
 }

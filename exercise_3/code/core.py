@@ -65,13 +65,14 @@ class Master(Process):
 
         msgs = []
         for i, idx_sublist in idxs.items():
+            print(i, idx_sublist)
             msg = self.socket.recv_string()
             msgs.append(msg)
-            print(idxs)
-            print(idx_sublist)
-            print(data)
+            print(msg)
             subset = {k: data[k] for k in idx_sublist}
+            print(subset)
             self.socket.send_json(subset)
+            time.sleep(1)
 
         # stage 2: Reducers wait for Mappers to finish processing and sending data (B:_ M:_ R:_)
 
@@ -138,10 +139,11 @@ class Mapper(Process):
     def run_mapreduce(self):
         # stage 1: Mappers (M) send online ack to Master (B) and receive data (B:S M:L R:_)
         self.socket = self.create_socket("REQ")
-        time.sleep(1)
         self.connect(self.master_id)
         self.socket.send_string(f"online (M:{self.my_id})")
         data = self.socket.recv_json()
+
+        print(f"data from {self.my_id}", data)
 
         # stage 2: Mappers process data (B:_ M:_ R:_)
         kv_pairs = self.process_data(data)

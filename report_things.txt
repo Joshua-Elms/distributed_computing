@@ -1,0 +1,4 @@
+1. Using eval on functions, unsafe
+2. Flexible, though - no special code to handle these cases
+3. Expects data separated by whitespace, in folders
+4. 
