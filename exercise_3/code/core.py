@@ -4,6 +4,7 @@ import sys
 import shutil
 import time
 from pathlib import Path
+from math import ceil
 
 
 class Process:
@@ -19,6 +20,7 @@ class Process:
         self.tmp_dir = Path(config["tmp_dir"])
         self.output_file = Path(config["output_file"])
         self.map_f = eval(config["map_f"])
+        self.reduce_base_type = eval(config["reduce_base_type"])
         self.reduce_f = eval(config["reduce_f"])
         self.context = zmq.Context()
 
@@ -52,7 +54,7 @@ class Master(Process):
             shutil.rmtree(self.tmp_dir)
         if self.output_file.exists():  # delete output file if exists
             self.output_file.unlink()
-        self.tmp_dir.mkdir()
+        self.tmp_dir.mkdir(parents=True)
         self.run_mapreduce()
 
     def run_mapreduce(self):
@@ -65,14 +67,10 @@ class Master(Process):
 
         msgs = []
         for i, idx_sublist in idxs.items():
-            print(i, idx_sublist)
             msg = self.socket.recv_string()
             msgs.append(msg)
-            print(msg)
             subset = {k: data[k] for k in idx_sublist}
-            print(subset)
             self.socket.send_json(subset)
-            time.sleep(1)
 
         # stage 2: Reducers wait for Mappers to finish processing and sending data (B:_ M:_ R:_)
 
@@ -85,13 +83,10 @@ class Master(Process):
         # stage 6: Reducers tell Master they are done (B:S M:_ R:L)
         msgs = []
         while len(msgs) < self.R:
-            try:
-                msg = self.socket.recv_string()
-                msgs.append(msg)
-                self.socket.send_string(str(time.time()))
+            msg = self.socket.recv_string()
+            msgs.append(msg)
+            self.socket.send_string(str(time.time()))
 
-            except zmq.error.ZMQError as e:
-                print("Error receiving message from reducer")
 
         # stage 7: Master aggregates output files from Reducers (B:_ M:_ R:_)
         self.aggregate_output()
@@ -126,8 +121,9 @@ class Master(Process):
             raise ValueError(f"Only {len(input_data)} input files found, rerun with {len(input_data)} mappers instead of {self.M}")
         
         chunks = {i: input_data[i] for i in range(len(input_data))}
-        chunk_size = len(input_data) // self.M
-        idx_chunks = {i // self.M : list(range(i, i + chunk_size)) for i in range(0, len(input_data), chunk_size)}
+        chunk_size = ceil(len(input_data) / self.M)
+        idx_chunks = {i // chunk_size : list(range(i, i + chunk_size - ((i + chunk_size) > len(input_data))*(chunk_size + 1 - self.M % chunk_size))) for i in range(0, len(input_data), chunk_size)}
+
         return chunks, idx_chunks
 
 
@@ -142,8 +138,6 @@ class Mapper(Process):
         self.connect(self.master_id)
         self.socket.send_string(f"online (M:{self.my_id})")
         data = self.socket.recv_json()
-
-        print(f"data from {self.my_id}", data)
 
         # stage 2: Mappers process data (B:_ M:_ R:_)
         kv_pairs = self.process_data(data)
@@ -188,8 +182,6 @@ class Reducer(Process):
             msgs.append(msg)
             self.socket.send_string(str(time.time()))
 
-        print(f"R{self.my_id}: received all messages from mappers: {msgs}")
-
         self.clear_socket()
 
         # stage 4: Reducer processes data (B:_ M:_ R:_)
@@ -203,15 +195,16 @@ class Reducer(Process):
         self.socket = self.create_socket("REQ")
         self.connect(self.master_id)
         self.socket.send_string(f"done (R:{self.my_id})")
-        self.socket.recv_string()
+        response = self.socket.recv_string()
 
         # stage 7: Reducer does nothing
         self.clear_socket()
 
     def process_data(self, data):
-        result = {k: 0 for k, v in data}
-        for k, v in data:
+        result = {k: self.reduce_base_type for k, v in data}
+        for k, v in data: 
             result[k] = self.reduce_f(result[k], v)
+
 
         # to string
         items = []
@@ -228,4 +221,8 @@ class Reducer(Process):
     def parse(self, data):
         stripped_msgs = [msg[1:-1] for msg in data]
         joined_msgs = " ".join(stripped_msgs)
-        return [tuple(kv.split(":")) for kv in joined_msgs.split()]
+        out = []
+        for kv in joined_msgs.split():
+            k, v = kv.split(":")
+            out.append((k, int(v)))
+        return out

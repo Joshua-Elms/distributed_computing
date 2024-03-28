@@ -1,6 +1,6 @@
 import re
 
-with open("wuthering_heights.txt", "r") as f:
+with open("wuthering_heights_raw.txt", "r") as f:
     raw = f.read()
 
 divchar = "CHAPTER"
@@ -18,7 +18,7 @@ for i, chapter in enumerate(data):
     final_data[i] = chapter.lower()
 
 for i in range(1, len(final_data)):
-    with open(f"wuthering_heights/chapter_{i}.txt", "w") as f:
+    with open(f"wuthering_heights/chapter_{i-1}.txt", "w") as f:
         f.write(final_data[i])
 
-print(len(final_data))
+print(len(final_data)-1)
